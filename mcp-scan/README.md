@@ -12,6 +12,7 @@
 - **📝 详细日志记录**: 使用 loguru 记录完整的执行过程
 - **🐛 Debug 模式**: 集成 Laminar 追踪功能，方便调试
 - **🕵️ Agent Skill 审计**: 自动识别并审计 Agent Skill 项目的一致性（SKILL.md vs 代码实现）
+- **🔐 MCP TOP 25 覆盖**: 支持 Adversa AI MCP Security TOP 25 漏洞检测（**完整覆盖率：100% - 25/25**）
 
 ## 🚀 快速开始
 
@@ -228,6 +229,47 @@ MCP-Scan 采用多阶段自动化流程：
 - **功能意图一致性**：对比 `SKILL.md` 的描述与 `scripts/` 下的代码实现。
 - **隐形行为检测**：检查代码中是否存在未在描述中提及的隐藏功能。
 - **输出格式验证**：验证代码输出是否符合描述的预期格式。
+
+### MCP Security TOP 25 漏洞检测
+
+基于 [Adversa AI MCP Security TOP 25](https://adversa.ai/mcp-security-top-25-mcp-vulnerabilities/) 标准，**完整覆盖所有 25 个漏洞 (100%)**：
+
+**Critical 级别 (5/5 = 100%)**
+1. ✅ Prompt Injection - 提示词注入
+2. ✅ Command Injection - 命令注入
+3. ✅ Tool Poisoning (TPA) - 工具投毒
+4. ✅ Remote Code Execution (RCE) - 远程代码执行
+5. ✅ Unauthenticated Access - 未授权访问
+
+**High 级别 (10/10 = 100%)**
+6. ✅ Confused Deputy (OAuth Proxy) - OAuth 代理混淆
+7. ✅ MCP Configuration Poisoning - MCP 配置投毒
+8. ✅ Token/Credential Theft - 令牌/凭证窃取
+9. ✅ Token Passthrough - 令牌透传
+10. ✅ Path Traversal - 路径遍历
+11. ✅ Full Schema Poisoning (FSP) - 完整模式投毒
+12. ✅ Tool Name Spoofing - 工具名称欺骗
+13. ✅ Localhost Bypass (NeighborJack) - 本地主机绕过
+14. ✅ Rug Pull Attack - 地毯式拉取攻击
+15. ✅ Advanced Tool Poisoning (ATPA) - 高级工具投毒
+
+**Medium 级别 (10/10 = 100%)**
+16. ✅ Session Management Flaws - 会话管理缺陷
+17. ✅ Tool Shadowing - 工具遮蔽
+18. ✅ Resource Content Poisoning - 资源内容投毒
+19. ✅ Privilege Abuse/Overbroad Permissions - 权限滥用/过度授权
+20. ✅ Cross-Repository Data Theft - 跨仓库数据窃取
+21. ✅ SQL Injection - SQL 注入
+22. ✅ Context Bleeding - 上下文泄漏
+23. ✅ Configuration File Exposure - 配置文件暴露
+24. ✅ MCP Preference Manipulation Attack (MPMA) - MCP 偏好操纵攻击
+25. ✅ Cross-Tenant Data Exposure - 跨租户数据暴露
+
+**分类统计**：
+- 恶意行为类 (malicious_behaviour_testing.md): 9 个漏洞
+- 传统漏洞类 (vulnerability_testing.md): 16 个漏洞
+
+详细信息请参考：[MCP_TOP25_Integration_Summary.md](./MCP_TOP25_Integration_Summary.md)
 
 ## 🤝 开发指南
 
