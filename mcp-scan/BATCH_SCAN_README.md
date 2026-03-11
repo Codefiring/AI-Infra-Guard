@@ -8,9 +8,12 @@ This guide explains how to use the batch scanning feature to scan multiple MCP s
 
 ```yaml
 targets:
-  - "http://192.168.1.100:8080"
-  - "http://192.168.1.101:8080"
-  - "http://10.0.0.50:9000"
+  - name: "MCP01"
+    url: "http://109.105.132.36:8001"
+  - name: "MCP02"
+    url: "http://192.168.1.101:8080"
+  - name: "MCP03"
+    url: "http://10.0.0.50:9000"
 ```
 
 2. **Run the batch scan**:
@@ -21,28 +24,56 @@ python main.py --config targets.yaml -k YOUR_API_KEY
 
 ## Configuration File Format
 
-The configuration file uses YAML format with a simple structure:
+The configuration file uses YAML format. Two formats are supported:
+
+### Format 1: Named Targets (Recommended)
+
+Use this format to assign meaningful names to each target. The name will be included in the log file name for easy identification.
 
 ```yaml
 targets:
-  # List of MCP server URLs
-  - "http://ip:port"
-  - "https://domain:port"
-  # Add more targets as needed
+  - name: "MCP01"
+    url: "http://ip:port"
+  - name: "MCP02"
+    url: "https://domain:port"
+```
+
+**Benefits:**
+- Easy identification of targets in logs
+- Log files named with target name prefix (e.g., `MCP01_109_105_132_36_8001.log`)
+- Useful for categorizing servers by vulnerability type or environment
+
+### Format 2: Simple URLs (Legacy)
+
+For backward compatibility, you can still use simple URL strings:
+
+```yaml
+targets:
+  - "http://192.168.1.100:8080"
+  - "http://192.168.1.101:8080"
 ```
 
 ### Example Configuration
 
 ```yaml
 targets:
-  # Internal servers
-  - "http://192.168.1.100:8080"
-  - "http://192.168.1.101:8080"
-  - "http://192.168.1.102:8080"
+  # Production servers with names
+  - name: "PROD-API-01"
+    url: "https://api-01.example.com:8080"
 
-  # External servers
-  - "https://mcp-server.example.com:8080"
-  - "https://api.example.com:9000"
+  - name: "PROD-API-02"
+    url: "https://api-02.example.com:8080"
+
+  # Internal test servers
+  - name: "TEST-MCP01"
+    url: "http://192.168.1.100:8080"
+
+  - name: "TEST-MCP02"
+    url: "http://192.168.1.101:8080"
+
+  # Vulnerability-specific naming
+  - name: "CVE-2024-1234"
+    url: "http://10.0.0.50:9000"
 ```
 
 ## Command Line Options
@@ -87,6 +118,18 @@ python main.py --config targets.yaml -k YOUR_API_KEY --header "Authorization:Bea
 
 When running a batch scan, logs are organized as follows:
 
+### With Named Targets
+
+```
+logs/
+└── scan_2026-03-11_14-30-00/                    # Timestamp when scan started
+    ├── MCP01_109_105_132_36_8001.log            # Log for MCP01 target
+    ├── MCP02_192_168_1_101_8080.log             # Log for MCP02 target
+    └── TEST-SERVER_10_0_0_50_9000.log           # Log for TEST-SERVER target
+```
+
+### Without Named Targets (Legacy)
+
 ```
 logs/
 └── scan_2026-03-11_14-30-00/          # Timestamp when scan started
@@ -97,15 +140,21 @@ logs/
 
 ### Log File Naming
 
+**With names:**
+- Format: `{name}_{ip}_{port}.log`
 - IP addresses: dots (`.`) are replaced with underscores (`_`)
 - Ports: separated by underscore
+- Example: `MCP01` + `109.105.132.36:8001` → `MCP01_109_105_132_36_8001.log`
+
+**Without names:**
+- Format: `{ip}_{port}.log`
 - Example: `192.168.1.100:8080` → `192_168_1_100_8080.log`
 
 ### Console Output
 
 During the scan, you'll see:
 - Progress indicator (`[1/3]`, `[2/3]`, etc.)
-- Current target being scanned
+- Current target being scanned (with name if provided)
 - Real-time scan results
 - Summary at the end with success/failure counts
 

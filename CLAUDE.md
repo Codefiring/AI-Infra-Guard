@@ -175,6 +175,41 @@ AI-Infra-Guard/
 2. Define security check logic for MCP server analysis
 3. Rules are executed by the AI Agent during MCP scanning
 
+### MCP Batch Scanning
+
+The `mcp-scan` tool supports batch scanning of multiple MCP servers from a configuration file:
+
+**Configuration File Format** (`mcp-scan/targets.yaml`):
+```yaml
+targets:
+  - name: "MCP01"
+    url: "http://109.105.132.36:8001"
+  - name: "MCP02"
+    url: "http://192.168.1.101:8080"
+```
+
+**Running Batch Scans**:
+```bash
+cd mcp-scan
+python main.py --config targets.yaml -k YOUR_API_KEY
+```
+
+**Output Structure**:
+- Logs are organized in time-stamped directories: `logs/scan_YYYY-MM-DD_HH-MM-SS/`
+- Each target gets its own log file named: `{name}_{ip}_{port}.log`
+- Example: `MCP01_109_105_132_36_8001.log`
+
+**Features**:
+- Named targets for easy identification (e.g., "MCP01" indicates vulnerability type)
+- Per-target log files with name prefix
+- Sequential scanning with progress tracking
+- Individual error handling (one failure doesn't stop the batch)
+- Summary report with success/failure counts
+
+**Backward Compatibility**:
+- Old format (simple URL strings) is still supported
+- Single-target mode works as before with `--server_url` flag
+
 ### Agent Task Registration
 
 To add a new task type:

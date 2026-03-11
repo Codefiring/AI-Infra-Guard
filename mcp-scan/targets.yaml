@@ -1,11 +1,18 @@
 # MCP Server Target Configuration
-# List of MCP server URLs to scan
+# List of MCP server URLs to scan with names
 
 targets:
-  # Format: http://ip:port or https://ip:port
-  - "http://192.168.1.100:8080"
-  - "http://192.168.1.101:8080"
-  - "http://10.0.0.50:9000"
+  # Format: name and url for each target
+  # The name will be used in log file naming to identify the server
+  - name: "MCP01"
+    url: "http://109.105.132.36:8001"
+
+  - name: "MCP02"
+    url: "http://192.168.1.101:8080"
+
+  - name: "MCP03"
+    url: "http://10.0.0.50:9000"
 
   # You can also use domain names
-  # - "https://mcp-server.example.com:8080"
+  # - name: "PROD-API"
+  #   url: "https://mcp-server.example.com:8080"

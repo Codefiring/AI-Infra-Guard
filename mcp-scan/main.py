@@ -96,21 +96,30 @@ def parse_args():
     return parser.parse_args()
 
 
-def sanitize_url_for_filename(url: str) -> str:
-    """Convert URL to a safe filename by extracting host and port"""
+def sanitize_url_for_filename(url: str, name: str = None) -> str:
+    """Convert URL to a safe filename by extracting host and port, optionally with a name prefix"""
     try:
         parsed = urlparse(url)
         host = parsed.hostname or "unknown"
         port = parsed.port or (443 if parsed.scheme == "https" else 80)
         # Replace dots and colons with underscores for safe filename
-        return f"{host.replace('.', '_')}_{port}"
+        filename = f"{host.replace('.', '_')}_{port}"
+
+        # Add name prefix if provided
+        if name:
+            filename = f"{name}_{filename}"
+
+        return filename
     except Exception as e:
         logger.warning(f"Failed to parse URL {url}: {e}")
         # Fallback: use a sanitized version of the full URL
-        return url.replace("://", "_").replace("/", "_").replace(":", "_").replace(".", "_")
+        sanitized = url.replace("://", "_").replace("/", "_").replace(":", "_").replace(".", "_")
+        if name:
+            sanitized = f"{name}_{sanitized}"
+        return sanitized
 
 
-def setup_target_logging(output_dir: Path, target_url: str):
+def setup_target_logging(output_dir: Path, target_url: str, target_name: str = None):
     """Setup logging for a specific target"""
     from loguru import logger as loguru_logger
 
@@ -125,7 +134,7 @@ def setup_target_logging(output_dir: Path, target_url: str):
     )
 
     # Add target-specific file handler
-    filename = sanitize_url_for_filename(target_url)
+    filename = sanitize_url_for_filename(target_url, target_name)
     log_file = output_dir / f"{filename}.log"
     loguru_logger.add(
         str(log_file),
@@ -140,18 +149,52 @@ def setup_target_logging(output_dir: Path, target_url: str):
 
 
 def load_targets_from_config(config_path: str) -> list:
-    """Load target URLs from YAML config file"""
+    """Load target URLs from YAML config file
+
+    Supports two formats:
+    1. New format (with names):
+       targets:
+         - name: "MCP01"
+           url: "http://ip:port"
+
+    2. Old format (simple strings):
+       targets:
+         - "http://ip:port"
+
+    Returns list of dicts: [{"name": "MCP01", "url": "http://..."}, ...]
+    """
     try:
         with open(config_path, 'r', encoding='utf-8') as f:
             config_data = yaml.safe_load(f)
 
-        targets = config_data.get('targets', [])
-        if not targets:
+        raw_targets = config_data.get('targets', [])
+        if not raw_targets:
             logger.warning(f"No targets found in config file: {config_path}")
             return []
 
-        logger.info(f"Loaded {len(targets)} targets from config file")
-        return targets
+        # Normalize targets to dict format
+        normalized_targets = []
+        for idx, target in enumerate(raw_targets, 1):
+            if isinstance(target, dict):
+                # New format with name and url
+                if 'url' not in target:
+                    logger.warning(f"Target {idx} missing 'url' field, skipping")
+                    continue
+                normalized_targets.append({
+                    'name': target.get('name'),
+                    'url': target['url']
+                })
+            elif isinstance(target, str):
+                # Old format - simple URL string
+                normalized_targets.append({
+                    'name': None,
+                    'url': target
+                })
+            else:
+                logger.warning(f"Invalid target format at index {idx}, skipping")
+
+        logger.info(f"Loaded {len(normalized_targets)} targets from config file")
+        return normalized_targets
     except FileNotFoundError:
         logger.error(f"Config file not found: {config_path}")
         sys.exit(1)
@@ -163,14 +206,16 @@ def load_targets_from_config(config_path: str) -> list:
         sys.exit(1)
 
 
-async def scan_single_target(target_url: str, args, llm, specialized_llms, output_dir: Path):
+async def scan_single_target(target_url: str, args, llm, specialized_llms, output_dir: Path, target_name: str = None):
     """Scan a single target and return results"""
+    display_name = f"{target_name} ({target_url})" if target_name else target_url
+
     logger.info(f"\n{'='*60}")
-    logger.info(f"Starting scan for target: {target_url}")
+    logger.info(f"Starting scan for target: {display_name}")
     logger.info(f"{'='*60}\n")
 
     # Setup logging for this target
-    log_file = setup_target_logging(output_dir, target_url)
+    log_file = setup_target_logging(output_dir, target_url, target_name)
     logger.info(f"Logging to: {log_file}")
 
     # Prepare prompt
@@ -210,20 +255,20 @@ async def scan_single_target(target_url: str, args, llm, specialized_llms, outpu
     try:
         # Run dynamic analysis
         result = await agent.dynamic_analysis(prompt)
-        logger.info(f"Scan completed for {target_url}")
+        logger.info(f"Scan completed for {display_name}")
         logger.info(f"Results:\n{result}")
-        return {"target": target_url, "status": "success", "result": result}
+        return {"target": target_url, "name": target_name, "status": "success", "result": result}
     except Exception as e:
-        logger.error(f"Scan failed for {target_url}: {e}", exc_info=True)
-        mcpLogger.error_log(f"Scan failed for {target_url}: {e}")
-        return {"target": target_url, "status": "failed", "error": str(e)}
+        logger.error(f"Scan failed for {display_name}: {e}", exc_info=True)
+        mcpLogger.error_log(f"Scan failed for {display_name}: {e}")
+        return {"target": target_url, "name": target_name, "status": "failed", "error": str(e)}
     finally:
         # Clean up agent resources
         if hasattr(agent, 'dispatcher'):
             try:
                 await agent.dispatcher.close()
             except Exception as e:
-                logger.warning(f"Failed to close dispatcher for {target_url}: {e}")
+                logger.warning(f"Failed to close dispatcher for {display_name}: {e}")
 
 
 async def batch_scan(targets: list, args, llm, specialized_llms):
@@ -239,8 +284,12 @@ async def batch_scan(targets: list, args, llm, specialized_llms):
 
     results = []
     for idx, target in enumerate(targets, 1):
-        logger.info(f"\n[{idx}/{len(targets)}] Processing target: {target}")
-        result = await scan_single_target(target, args, llm, specialized_llms, output_dir)
+        target_url = target['url']
+        target_name = target.get('name')
+        display_name = f"{target_name} ({target_url})" if target_name else target_url
+
+        logger.info(f"\n[{idx}/{len(targets)}] Processing target: {display_name}")
+        result = await scan_single_target(target_url, args, llm, specialized_llms, output_dir, target_name)
         results.append(result)
 
     # Summary
