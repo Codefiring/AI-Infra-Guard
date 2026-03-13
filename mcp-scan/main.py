@@ -93,6 +93,13 @@ def parse_args():
         help="Path to YAML config file containing target list (for batch scanning)"
     )
 
+    parser.add_argument(
+        "--max-concurrent",
+        type=int,
+        default=None,
+        help="Maximum number of concurrent scan stages (default: 5, from MCP_MAX_CONCURRENT_STAGES env var)"
+    )
+
     return parser.parse_args()
 
 
@@ -248,7 +255,8 @@ async def scan_single_target(target_url: str, args, llm, specialized_llms, outpu
         debug=args.debug,
         server_url=target_url,
         language=args.language,
-        headers=headers
+        headers=headers,
+        max_concurrent_stages=args.max_concurrent
     )
 
     result = None
@@ -380,7 +388,7 @@ async def main():
             logger.info(f"Custom headers: {headers}")
 
     agent = Agent(llm=llm, specialized_llms=specialized_llms, debug=args.debug, server_url=args.server_url,
-                  language=args.language, headers=headers)
+                  language=args.language, headers=headers, max_concurrent_stages=args.max_concurrent)
     try:
         if args.server_url:
             logger.info(f"Server mode enabled with URL: {args.server_url}")

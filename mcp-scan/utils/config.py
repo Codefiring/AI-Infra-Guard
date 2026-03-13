@@ -45,3 +45,8 @@ FAST_API_KEY = get_env("FAST_API_KEY")  # 可选，不设置则使用主 API Key
 # ===== Debug 和日志配置 =====
 LAMINAR_API_KEY = get_env("LAMINAR_API_KEY")
 LOG_LEVEL = get_env("LOG_LEVEL", "INFO")
+
+# ===== Parallelization settings =====
+MAX_CONCURRENT_STAGES = int(get_env("MCP_MAX_CONCURRENT_STAGES", "5"))
+STAGE_TIMEOUT = int(get_env("MCP_STAGE_TIMEOUT", "300"))  # 5 minutes per stage
+ENABLE_PARALLEL_SCAN = get_env("MCP_ENABLE_PARALLEL", "true").lower() == "true"

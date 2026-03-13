@@ -1,5 +1,10 @@
 import os
 import time
+import asyncio
+import logging
+import shutil
+from datetime import datetime
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 from agent.base_agent import BaseAgent
@@ -109,13 +114,16 @@ class ScanPipeline:
 
 class Agent:
     def __init__(self, llm, specialized_llms: dict = None, debug: bool = False,
-                 server_url: str = None, language='zh', headers=None):
+                 server_url: str = None, language='zh', headers=None, max_concurrent_stages: int = None):
         self.llm = llm
         self.specialized_llms = specialized_llms or {}
         self.debug = debug
         self.dispatcher = ToolDispatcher(mcp_server_url=server_url, mcp_headers=headers)
         self.pipeline = ScanPipeline(self)
         self.language = language
+        self.max_concurrent_stages = max_concurrent_stages or \
+            int(os.getenv("MCP_MAX_CONCURRENT_STAGES", "5"))
+        self.temp_log_dir = None
 
     async def scan(self, repo_dir: str, prompt: str):
         result_meta = {
@@ -280,13 +288,93 @@ markdown格式返回
         ]
 
         all_reports = []
-        for stage_id, stage_name, template in malicious_stages + vuln_stages:
-            report = await self.pipeline.execute_stage_dynamic(
-                ScanStage(stage_id, stage_name, template,
-                          output_format=vuln_ret_format, language=self.language),
-                prompt, {"信息收集报告": info_collection}
-            )
-            all_reports.append((stage_name, report))
+
+        # Create temporary log directory for parallel stage logs
+        self.temp_log_dir = Path("logs/tmp")
+        self.temp_log_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create semaphore for concurrency control
+        semaphore = asyncio.Semaphore(self.max_concurrent_stages)
+
+        # Helper function to run stage with semaphore, error handling, and per-stage logging
+        async def run_stage_with_semaphore(stage_id, stage_name, template):
+            # Create temporary log file for this stage
+            safe_stage_name = stage_name.replace(" ", "_").replace("/", "_").replace("(", "").replace(")", "")
+            temp_log_file = self.temp_log_dir / f"stage_{stage_id}_{safe_stage_name}.log"
+
+            # Set up file handler for this stage's logger
+            file_handler = logging.FileHandler(temp_log_file, mode='w', encoding='utf-8')
+            file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+            stage_logger = logging.getLogger(f"stage_{stage_id}")
+            stage_logger.addHandler(file_handler)
+            stage_logger.setLevel(logging.DEBUG)
+
+            async with semaphore:
+                try:
+                    stage_logger.info(f"Starting stage {stage_id}: {stage_name}")
+                    report = await self.pipeline.execute_stage_dynamic(
+                        ScanStage(stage_id, stage_name, template,
+                                  output_format=vuln_ret_format, language=self.language),
+                        prompt, {"信息收集报告": info_collection}
+                    )
+                    stage_logger.info(f"Completed stage {stage_id}: {stage_name}")
+                    return (stage_id, stage_name, report, None, temp_log_file)
+                except Exception as e:
+                    stage_logger.error(f"Stage {stage_name} failed: {e}", exc_info=True)
+                    error_report = f"# Error\nStage failed: {str(e)}"
+                    return (stage_id, stage_name, error_report, str(e), temp_log_file)
+                finally:
+                    # Clean up handler
+                    stage_logger.removeHandler(file_handler)
+                    file_handler.close()
+
+        # Create tasks for all stages
+        tasks = [
+            run_stage_with_semaphore(stage_id, stage_name, template)
+            for stage_id, stage_name, template in malicious_stages + vuln_stages
+        ]
+
+        # Execute all stages in parallel (semaphore limits concurrency)
+        logger.info(f"Starting parallel execution: {len(tasks)} stages, max {self.max_concurrent_stages} concurrent")
+        results = await asyncio.gather(*tasks, return_exceptions=False)
+
+        # Sort results by stage_id to maintain order
+        results = sorted(results, key=lambda x: int(x[0]))
+
+        # Merge temporary log files into main log in stage order
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        main_log_file = Path("logs") / f"parallel_stages_{timestamp}.log"
+        main_log_file.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(main_log_file, 'w', encoding='utf-8') as main_log:
+            main_log.write("="*80 + "\n")
+            main_log.write("PARALLEL STAGE EXECUTION LOGS (Stages 2-26)\n")
+            main_log.write("="*80 + "\n\n")
+
+            for stage_id, stage_name, report, error, temp_log_file in results:
+                main_log.write(f"\n{'='*80}\n")
+                main_log.write(f"Stage {stage_id}: {stage_name}\n")
+                main_log.write(f"{'='*80}\n\n")
+
+                # Append this stage's log content
+                if temp_log_file.exists():
+                    with open(temp_log_file, 'r', encoding='utf-8') as stage_log:
+                        main_log.write(stage_log.read())
+                    main_log.write("\n")
+
+        # Clean up temporary log directory
+        try:
+            shutil.rmtree(self.temp_log_dir)
+            logger.info(f"Cleaned up temporary log directory: {self.temp_log_dir}")
+        except Exception as e:
+            logger.warning(f"Failed to clean up temporary logs: {e}")
+
+        # Process results for reports
+        all_reports = [(name, report) for _, name, report, error, _ in results]
+        success_count = sum(1 for _, _, _, error, _ in results if error is None)
+        failed_count = len(results) - success_count
+        logger.info(f"Parallel execution complete: {success_count} succeeded, {failed_count} failed")
+        logger.info(f"Merged logs saved to: {main_log_file}")
 
         # Stage 27: Vulnerability Review — consolidate all per-type reports
         review_format = '''
