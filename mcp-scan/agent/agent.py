@@ -170,7 +170,7 @@ markdown格式返回
   
   ### 影响评估  
   </desc>
-  <risk_type>RiskType</risk_type>
+  <risk_type>Short identifier only, e.g. MCP01 / MCP05 / Name Confusion / CWE-78</risk_type>
   <level>Level</level>
   <suggestion>
   ## 修复建议
@@ -306,7 +306,7 @@ markdown格式返回
 
           ### 影响评估
           </desc>
-          <risk_type>RiskType</risk_type>
+          <risk_type>Short identifier only, e.g. MCP01 / MCP05 / Name Confusion / CWE-78</risk_type>
           <level>Level</level>
           <suggestion>
           ## 修复建议
