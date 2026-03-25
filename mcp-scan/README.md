@@ -13,6 +13,8 @@
 - **🐛 Debug 模式**: 集成 Laminar 追踪功能，方便调试
 - **🕵️ Agent Skill 审计**: 自动识别并审计 Agent Skill 项目的一致性（SKILL.md vs 代码实现）
 - **🔐 MCP TOP 25 覆盖**: 支持 Adversa AI MCP Security TOP 25 漏洞检测（**完整覆盖率：100% - 25/25**）
+- **🔑 OAuth 2.0 支持**: 支持 Client Credentials 流程对受保护的 MCP Server 进行认证扫描
+- **🔄 每阶段连接生命周期**: 每个扫描阶段独立建立/断开 MCP 连接，保证 Token 时效性
 
 ## 🚀 快速开始
 
@@ -85,6 +87,10 @@ python main.py --repo <项目路径> [选项]
 | `--server_url` | - | 远程 MCP server URL (启用动态分析模式) | `None` |
 | `--header` | - | 自定义 HTTP header (key:value)，可多次使用 | `[]` |
 | `--language` | - | 输出语言 (zh/en) | `zh` |
+| `--oauth-client-id` | - | OAuth 2.0 Client ID（Client Credentials 流程） | `None` |
+| `--oauth-client-secret` | - | OAuth 2.0 Client Secret | `None` |
+| `--oauth-token-url` | - | OAuth 2.0 Token 端点 URL | `None` |
+| `--oauth-scope` | - | OAuth 2.0 Scope（可选，空格分隔） | `None` |
 
 ### 使用示例
 
@@ -111,6 +117,14 @@ python main.py --repo ./myproject \
 python main.py \
   --server_url "http://localhost:8000/sse" \
   --prompt "测试工具投毒漏洞"
+
+# 动态分析 + OAuth 认证
+python main.py \
+  --server_url "http://localhost:8090/sse" \
+  --oauth-client-id "my-client" \
+  --oauth-client-secret "my-secret" \
+  --oauth-token-url "https://auth.example.com/oauth/token" \
+  --oauth-scope "mcp:read"
 ```
 
 ## ⚙️ 配置说明
@@ -184,6 +198,8 @@ mcp-scan/
 │   ├── llm.py             # LLM 基础封装
 │   ├── llm_manager.py     # LLM 管理器（多模型支持）
 │   ├── loging.py          # 日志配置
+│   ├── mcp_oauth.py       # OAuth 2.0 Client Credentials 支持
+│   ├── mcp_tools.py       # MCP 客户端封装
 │   ├── parse.py           # XML 解析
 │   ├── project_analyzer.py # 项目分析工具
 │   ├── extract_vuln.py    # 漏洞提取工具
@@ -270,6 +286,82 @@ MCP-Scan 采用多阶段自动化流程：
 - 传统漏洞类 (vulnerability_testing.md): 16 个漏洞
 
 详细信息请参考：[MCP_TOP25_Integration_Summary.md](./MCP_TOP25_Integration_Summary.md)
+
+## 🔑 OAuth 2.0 认证
+
+对于需要 OAuth 认证的 MCP Server，mcp-scan 支持 **Client Credentials** 流程自动获取和刷新 Bearer Token。
+
+### 工作原理
+
+每个扫描阶段的连接生命周期为：
+
+```
+OAuth 获取 Token → 连接 MCP Server（携带 Bearer Token）→ 执行扫描 → 断开连接
+```
+
+Token 会被缓存并在过期前自动刷新（默认预留 30 秒缓冲），整个扫描过程无需人工干预。
+
+### 使用示例
+
+```bash
+python main.py \
+  --server_url "http://localhost:8090/sse" \
+  --oauth-client-id "my-client" \
+  --oauth-client-secret "my-secret" \
+  --oauth-token-url "https://auth.example.com/oauth/token" \
+  --oauth-scope "mcp:read"
+```
+
+### 本地测试
+
+项目提供了一个 Flask mock OAuth Server，方便本地调试：
+
+```bash
+# 启动 mock OAuth Server（监听 http://127.0.0.1:8000）
+python ../OAuth/OAuth-server.py
+```
+
+内置测试凭证：
+
+| Client ID | Client Secret | Scope |
+|-----------|--------------|-------|
+| `test-client` | `test-secret` | `mcp:read` |
+| `your-client-id` | `your-client-secret` | `mcp:read mcp:write` |
+
+Mock Server 端点：
+
+| 端点 | 说明 |
+|------|------|
+| `POST /oauth/token` | 颁发 Bearer Token |
+| `POST /oauth/introspect` | 验证 Token 有效性 |
+| `GET /protected-resource` | 测试 Bearer Token 保护资源 |
+
+### 为 MCP Server 添加 OAuth 验证
+
+参考 `testcase/case1/main1.py`，只需添加 `OAuthBearerMiddleware` 即可为任意 Starlette MCP Server 启用 Bearer Token 验证：
+
+```python
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
+import httpx
+
+OAUTH_INTROSPECT_URL = "http://127.0.0.1:8000/oauth/introspect"
+
+class OAuthBearerMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        auth = request.headers.get("Authorization", "")
+        if not auth.startswith("Bearer "):
+            return JSONResponse({"error": "missing_bearer_token"}, status_code=401)
+        token = auth.removeprefix("Bearer ").strip()
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(OAUTH_INTROSPECT_URL, data={"token": token},
+                                     headers={"Content-Type": "application/x-www-form-urlencoded"})
+        if not resp.json().get("active"):
+            return JSONResponse({"error": "invalid_or_expired_token"}, status_code=401)
+        return await call_next(request)
+
+app.add_middleware(OAuthBearerMiddleware)
+```
 
 ## 🤝 开发指南
 
