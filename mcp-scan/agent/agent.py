@@ -71,51 +71,95 @@ class ScanPipeline:
         return result
 
     async def execute_stage_dynamic(self, stage: ScanStage, prompt: str,
-                                    context_data: Dict[str, Any] = None) -> str:
+                                    context_data: Dict[str, Any] = None,
+                                    use_oauth: bool = True) -> str:
+        """
+        Execute a single dynamic scan stage with explicit connection lifecycle:
+          connect → [OAuth] → run → disconnect
+
+        Args:
+            stage: The scan stage to execute.
+            prompt: User prompt for the stage.
+            context_data: Optional background context passed to the agent.
+            use_oauth: Whether to perform OAuth authentication after connecting.
+                       Defaults to True. Set to False to skip OAuth even if an
+                       OAuthManager is configured on the dispatcher.
+        """
         logger.info(f"=== 阶段 {stage.stage_id}: {stage.name} ===")
         mcpLogger.new_plan_step(stepId=stage.stage_id, stepName=stage.name)
 
-        # 加载提示词模板
-        instruction = prompt_manager.load_template(stage.template)
+        dispatcher = self.agent_wrapper.dispatcher
 
-        # 初始化阶段 Agent
-        agent = BaseAgent(
-            name=f"{stage.name} Agent",
-            instruction=instruction,
-            llm=self.agent_wrapper.llm,
-            dispatcher=self.agent_wrapper.dispatcher,
-            specialized_llms=self.agent_wrapper.specialized_llms,
-            log_step_id=stage.stage_id,
-            debug=self.agent_wrapper.debug,
-            output_format=stage.output_format,
-            output_check_fn=stage.output_check_fn,
-        )
-        await agent.initialize()
+        # 1. CONNECT — clear any stale connection, then verify server reachability
+        logger.debug(f"Stage {stage.stage_id}: connecting to MCP server")
+        await dispatcher.close()
+        await dispatcher.connect()
 
-        # 构造用户消息
-        user_msg = f"请进行{stage.name}，进行MCP动态扫描\n{prompt}"
-        if context_data:
-            user_msg += "\n\n有以下背景信息：\n"
-            for key, value in context_data.items():
-                user_msg += f"{key}:{value}\n\n"
+        # 2. OAUTH — acquire/refresh token and inject into headers, then reset the
+        #    pre-auth connection so the stage runs with token-bearing headers
+        if use_oauth and dispatcher.oauth_manager is not None:
+            logger.debug(f"Stage {stage.stage_id}: performing OAuth authentication")
+            await dispatcher.inject_oauth_token()
+            await dispatcher.close()  # drop pre-auth connection; stage will reconnect with token
 
-        agent.add_user_message(user_msg)
+        try:
+            # 3. RUN — execute stage with (optionally authenticated) connection
+            instruction = prompt_manager.load_template(stage.template)
 
-        # 运行并返回结果
-        result = await agent.run()
-        self.results[stage.name] = result
-        return result
+            agent = BaseAgent(
+                name=f"{stage.name} Agent",
+                instruction=instruction,
+                llm=self.agent_wrapper.llm,
+                dispatcher=dispatcher,
+                specialized_llms=self.agent_wrapper.specialized_llms,
+                log_step_id=stage.stage_id,
+                debug=self.agent_wrapper.debug,
+                output_format=stage.output_format,
+                output_check_fn=stage.output_check_fn,
+            )
+            await agent.initialize()
+
+            user_msg = f"请进行{stage.name}，进行MCP动态扫描\n{prompt}"
+            if context_data:
+                user_msg += "\n\n有以下背景信息：\n"
+                for key, value in context_data.items():
+                    user_msg += f"{key}:{value}\n\n"
+
+            agent.add_user_message(user_msg)
+            result = await agent.run()
+            self.results[stage.name] = result
+            return result
+
+        finally:
+            # 4. DISCONNECT — always tear down after each stage, even on failure
+            try:
+                logger.debug(f"Stage {stage.stage_id}: disconnecting from MCP server")
+                await dispatcher.close()
+            except Exception as close_exc:
+                logger.warning(
+                    f"Stage {stage.stage_id}: non-fatal error during disconnect: {close_exc}"
+                )
 
 
 class Agent:
     def __init__(self, llm, specialized_llms: dict = None, debug: bool = False,
-                 server_url: str = None, language='zh', headers=None):
+                 server_url: str = None, language='zh', headers=None, oauth_config=None):
         self.llm = llm
         self.specialized_llms = specialized_llms or {}
         self.debug = debug
-        self.dispatcher = ToolDispatcher(mcp_server_url=server_url, mcp_headers=headers)
-        self.pipeline = ScanPipeline(self)
         self.language = language
+
+        oauth_manager = None
+        if oauth_config is not None:
+            from utils.mcp_oauth import OAuthManager
+            oauth_manager = OAuthManager(oauth_config)
+
+        self.dispatcher = ToolDispatcher(
+            mcp_server_url=server_url,
+            mcp_headers=headers,
+            oauth_manager=oauth_manager,
+        )
+        self.pipeline = ScanPipeline(self)
 
     async def scan(self, repo_dir: str, prompt: str):
         result_meta = {

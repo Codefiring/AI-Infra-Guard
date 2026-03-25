@@ -9,17 +9,53 @@ from tools.registry import get_tools_prompt
 
 if TYPE_CHECKING:  # pragma: no cover
     from utils.tool_context import ToolContext
+    from utils.mcp_oauth import OAuthManager
 
 
 class ToolDispatcher:
-    def __init__(self, mcp_server_url: Optional[str] = None, mcp_headers: Optional[Dict[str, str]] = None):
+    def __init__(self, mcp_server_url: Optional[str] = None,
+                 mcp_headers: Optional[Dict[str, str]] = None,
+                 oauth_manager: Optional["OAuthManager"] = None):
         """
         NOTE: __init__ must be synchronous. We do lazy MCP connection on first remote usage.
+
+        Args:
+            mcp_server_url: Remote MCP server URL.
+            mcp_headers: Static headers supplied by the caller (API keys, custom headers).
+                         Never mutated; OAuth Bearer token is layered on top separately.
+            oauth_manager: Optional OAuthManager for automatic token injection.
         """
         self.mcp_server_url = mcp_server_url
         self.mcp_tools_manager: Optional[MCPTools] = None
         self.mcp_transport = None
-        self.mcp_headers = mcp_headers
+        # Caller-supplied headers; immutable reference point for rebuilding effective headers.
+        self._base_headers: Dict[str, str] = dict(mcp_headers or {})
+        # Effective headers used for MCP connections (may include OAuth Bearer token).
+        self.mcp_headers: Dict[str, str] = dict(self._base_headers)
+        self.oauth_manager = oauth_manager
+
+    async def inject_oauth_token(self) -> None:
+        """
+        Fetch a fresh OAuth token and merge it into the effective headers.
+        No-op if no OAuthManager is configured.
+        """
+        if self.oauth_manager is None:
+            return
+        token = await self.oauth_manager.get_token()
+        # Rebuild effective headers: base headers + OAuth Bearer token (OAuth takes priority).
+        self.mcp_headers = {**self._base_headers, "Authorization": f"Bearer {token}"}
+        logger.debug("ToolDispatcher: OAuth Bearer token injected into MCP headers")
+
+    async def connect(self) -> None:
+        """
+        Establish a fresh connection to the MCP server and verify reachability.
+        Raises RuntimeError if the server cannot be reached.
+        """
+        manager = await self._ensure_mcp_manager()
+        if manager is None:
+            raise RuntimeError(
+                f"ToolDispatcher: Unable to connect to MCP server: {self.mcp_server_url}"
+            )
 
     async def _ensure_mcp_manager(self) -> Optional[MCPTools]:
         if not self.mcp_server_url:
@@ -110,7 +146,8 @@ class ToolDispatcher:
             return ret
         return str(result)
 
-    async def close(self):
+    async def close(self) -> None:
         if self.mcp_tools_manager:
             await self.mcp_tools_manager.close()
-            logger.info("ToolDispatcher: MCP tools manager closed")
+            self.mcp_tools_manager = None
+            logger.info("ToolDispatcher: MCP tools manager closed and reset")

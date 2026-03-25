@@ -93,6 +93,28 @@ def parse_args():
         help="Path to YAML config file containing target list (for batch scanning)"
     )
 
+    # OAuth 2.0 Client Credentials (all three required together; scope is optional)
+    parser.add_argument(
+        "--oauth-client-id",
+        default=None,
+        help="OAuth 2.0 client ID (Client Credentials flow)",
+    )
+    parser.add_argument(
+        "--oauth-client-secret",
+        default=None,
+        help="OAuth 2.0 client secret (Client Credentials flow)",
+    )
+    parser.add_argument(
+        "--oauth-token-url",
+        default=None,
+        help="OAuth 2.0 token endpoint URL",
+    )
+    parser.add_argument(
+        "--oauth-scope",
+        default=None,
+        help="OAuth 2.0 scope (optional, space-separated)",
+    )
+
     return parser.parse_args()
 
 
@@ -206,7 +228,41 @@ def load_targets_from_config(config_path: str) -> list:
         sys.exit(1)
 
 
-async def scan_single_target(target_url: str, args, llm, specialized_llms, output_dir: Path, target_name: str = None):
+def build_oauth_config(args):
+    """
+    Build an OAuthConfig from parsed CLI args, or return None if OAuth is not configured.
+    Exits with an error if only a partial OAuth config is provided.
+    """
+    provided = {
+        k: v for k, v in {
+            "client_id": getattr(args, "oauth_client_id", None),
+            "client_secret": getattr(args, "oauth_client_secret", None),
+            "token_url": getattr(args, "oauth_token_url", None),
+        }.items() if v
+    }
+
+    if not provided:
+        return None
+
+    required = {"client_id", "client_secret", "token_url"}
+    missing = required - provided.keys()
+    if missing:
+        flag_names = ", ".join(f"--oauth-{k.replace('_', '-')}" for k in sorted(missing))
+        logger.error(f"Incomplete OAuth configuration. Missing: {flag_names}")
+        sys.exit(1)
+
+    from utils.mcp_oauth import OAuthConfig
+    config = OAuthConfig(
+        client_id=args.oauth_client_id,
+        client_secret=args.oauth_client_secret,
+        token_url=args.oauth_token_url,
+        scope=getattr(args, "oauth_scope", None),
+    )
+    logger.info(f"OAuth configured: token_url={config.token_url}, client_id={config.client_id}")
+    return config
+
+
+async def scan_single_target(target_url: str, args, llm, specialized_llms, output_dir: Path, target_name: str = None, oauth_config=None):
     """Scan a single target and return results"""
     display_name = f"{target_name} ({target_url})" if target_name else target_url
 
@@ -248,7 +304,8 @@ async def scan_single_target(target_url: str, args, llm, specialized_llms, outpu
         debug=args.debug,
         server_url=target_url,
         language=args.language,
-        headers=headers
+        headers=headers,
+        oauth_config=oauth_config,
     )
 
     result = None
@@ -282,6 +339,8 @@ async def batch_scan(targets: list, args, llm, specialized_llms):
     logger.info(f"Output directory: {output_dir}")
     logger.info(f"Total targets: {len(targets)}")
 
+    oauth_config = build_oauth_config(args)
+
     results = []
     for idx, target in enumerate(targets, 1):
         target_url = target['url']
@@ -289,7 +348,10 @@ async def batch_scan(targets: list, args, llm, specialized_llms):
         display_name = f"{target_name} ({target_url})" if target_name else target_url
 
         logger.info(f"\n[{idx}/{len(targets)}] Processing target: {display_name}")
-        result = await scan_single_target(target_url, args, llm, specialized_llms, output_dir, target_name)
+        result = await scan_single_target(
+            target_url, args, llm, specialized_llms, output_dir, target_name,
+            oauth_config=oauth_config,
+        )
         results.append(result)
 
     # Summary
@@ -379,8 +441,9 @@ async def main():
         if headers:
             logger.info(f"Custom headers: {headers}")
 
+    oauth_config = build_oauth_config(args)
     agent = Agent(llm=llm, specialized_llms=specialized_llms, debug=args.debug, server_url=args.server_url,
-                  language=args.language, headers=headers)
+                  language=args.language, headers=headers, oauth_config=oauth_config)
     try:
         if args.server_url:
             logger.info(f"Server mode enabled with URL: {args.server_url}")
