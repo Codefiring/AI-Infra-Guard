@@ -292,44 +292,49 @@ markdown格式返回
         '''
 
         # Stages 2-10: Individual malicious behavior scans
+        # Tuple format: (stage_id, name, template, use_oauth)
         malicious_stages = [
-            ("2",  "Tool Poisoning (TPA)",                    "agents/dynamic/malicious/tpa"),
-            ("3",  "Full Schema Poisoning (FSP)",             "agents/dynamic/malicious/fsp"),
-            ("4",  "Advanced Tool Poisoning (ATPA)",          "agents/dynamic/malicious/atpa"),
-            ("5",  "Rug Pull Attack",                         "agents/dynamic/malicious/rug_pull"),
-            ("6",  "MCP Configuration Poisoning",             "agents/dynamic/malicious/config_poisoning"),
-            ("7",  "Tool Name Spoofing",                      "agents/dynamic/malicious/name_spoofing"),
-            ("8",  "Tool Shadowing",                          "agents/dynamic/malicious/tool_shadowing"),
-            ("9",  "Resource Content Poisoning",              "agents/dynamic/malicious/resource_poisoning"),
-            ("10", "MCP Preference Manipulation (MPMA)",      "agents/dynamic/malicious/mpma"),
+            ("2",  "Tool Poisoning (TPA)",                    "agents/dynamic/malicious/tpa",                True),
+            ("3",  "Full Schema Poisoning (FSP)",             "agents/dynamic/malicious/fsp",                True),
+            ("4",  "Advanced Tool Poisoning (ATPA)",          "agents/dynamic/malicious/atpa",               True),
+            ("5",  "Rug Pull Attack",                         "agents/dynamic/malicious/rug_pull",           True),
+            ("6",  "MCP Configuration Poisoning",             "agents/dynamic/malicious/config_poisoning",   True),
+            ("7",  "Tool Name Spoofing",                      "agents/dynamic/malicious/name_spoofing",      True),
+            ("8",  "Tool Shadowing",                          "agents/dynamic/malicious/tool_shadowing",     True),
+            ("9",  "Resource Content Poisoning",              "agents/dynamic/malicious/resource_poisoning", True),
+            ("10", "MCP Preference Manipulation (MPMA)",      "agents/dynamic/malicious/mpma",               True),
         ]
 
         # Stages 11-26: Individual vulnerability scans
+        # Tuple format: (stage_id, name, template, use_oauth)
+        # Stage 14 intentionally disables OAuth to test whether the server
+        # rejects unauthenticated requests (401 = no vulnerability; success = vulnerability).
         vuln_stages = [
-            ("11", "Prompt Injection",                        "agents/dynamic/vuln/prompt_injection"),
-            ("12", "Command Injection",                       "agents/dynamic/vuln/command_injection"),
-            ("13", "Remote Code Execution (RCE)",             "agents/dynamic/vuln/rce"),
-            ("14", "Unauthenticated Access",                  "agents/dynamic/vuln/unauth_access"),
-            ("15", "Confused Deputy (OAuth Proxy)",           "agents/dynamic/vuln/confused_deputy"),
-            ("16", "Token/Credential Theft",                  "agents/dynamic/vuln/credential_theft"),
-            ("17", "Token Passthrough",                       "agents/dynamic/vuln/token_passthrough"),
-            ("18", "Path Traversal",                          "agents/dynamic/vuln/path_traversal"),
-            ("19", "Localhost Bypass (NeighborJack)",         "agents/dynamic/vuln/localhost_bypass"),
-            ("20", "Session Management Flaws",                "agents/dynamic/vuln/session_management"),
-            ("21", "Privilege Abuse/Overbroad Permissions",   "agents/dynamic/vuln/privilege_abuse"),
-            ("22", "Cross-Repository Data Theft",             "agents/dynamic/vuln/cross_repo_theft"),
-            ("23", "SQL Injection",                           "agents/dynamic/vuln/sql_injection"),
-            ("24", "Context Bleeding",                        "agents/dynamic/vuln/context_bleeding"),
-            ("25", "Configuration File Exposure",             "agents/dynamic/vuln/config_exposure"),
-            ("26", "Cross-Tenant Data Exposure",              "agents/dynamic/vuln/cross_tenant_exposure"),
+            ("11", "Prompt Injection",                        "agents/dynamic/vuln/prompt_injection",    True),
+            ("12", "Command Injection",                       "agents/dynamic/vuln/command_injection",   True),
+            ("13", "Remote Code Execution (RCE)",             "agents/dynamic/vuln/rce",                 True),
+            ("14", "Unauthenticated Access",                  "agents/dynamic/vuln/unauth_access",       False),
+            ("15", "Confused Deputy (OAuth Proxy)",           "agents/dynamic/vuln/confused_deputy",     True),
+            ("16", "Token/Credential Theft",                  "agents/dynamic/vuln/credential_theft",    True),
+            ("17", "Token Passthrough",                       "agents/dynamic/vuln/token_passthrough",   True),
+            ("18", "Path Traversal",                          "agents/dynamic/vuln/path_traversal",      True),
+            ("19", "Localhost Bypass (NeighborJack)",         "agents/dynamic/vuln/localhost_bypass",    True),
+            ("20", "Session Management Flaws",                "agents/dynamic/vuln/session_management",  True),
+            ("21", "Privilege Abuse/Overbroad Permissions",   "agents/dynamic/vuln/privilege_abuse",     True),
+            ("22", "Cross-Repository Data Theft",             "agents/dynamic/vuln/cross_repo_theft",    True),
+            ("23", "SQL Injection",                           "agents/dynamic/vuln/sql_injection",       True),
+            ("24", "Context Bleeding",                        "agents/dynamic/vuln/context_bleeding",    True),
+            ("25", "Configuration File Exposure",             "agents/dynamic/vuln/config_exposure",     True),
+            ("26", "Cross-Tenant Data Exposure",              "agents/dynamic/vuln/cross_tenant_exposure", True),
         ]
 
         all_reports = []
-        for stage_id, stage_name, template in malicious_stages + vuln_stages:
+        for stage_id, stage_name, template, use_oauth in malicious_stages + vuln_stages:
             report = await self.pipeline.execute_stage_dynamic(
                 ScanStage(stage_id, stage_name, template,
                           output_format=vuln_ret_format, language=self.language),
-                prompt, {"信息收集报告": info_collection}
+                prompt, {"信息收集报告": info_collection},
+                use_oauth=use_oauth,
             )
             all_reports.append((stage_name, report))
 
