@@ -90,17 +90,18 @@ class ScanPipeline:
 
         dispatcher = self.agent_wrapper.dispatcher
 
-        # 1. CONNECT — clear any stale connection, then verify server reachability
-        logger.debug(f"Stage {stage.stage_id}: connecting to MCP server")
+        # 1. Clear any stale connection from the previous stage
         await dispatcher.close()
-        await dispatcher.connect()
 
-        # 2. OAUTH — acquire/refresh token and inject into headers, then reset the
-        #    pre-auth connection so the stage runs with token-bearing headers
+        # 2. OAUTH — get token before connecting so it is present in the headers
+        #    when the MCP connection is established (server may require auth on connect)
         if use_oauth and dispatcher.oauth_manager is not None:
             logger.debug(f"Stage {stage.stage_id}: performing OAuth authentication")
             await dispatcher.inject_oauth_token()
-            await dispatcher.close()  # drop pre-auth connection; stage will reconnect with token
+
+        # 3. CONNECT — open a fresh connection (headers now include Bearer token if OAuth is used)
+        logger.debug(f"Stage {stage.stage_id}: connecting to MCP server")
+        await dispatcher.connect()
 
         try:
             # 3. RUN — execute stage with (optionally authenticated) connection

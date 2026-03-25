@@ -48,6 +48,18 @@ The platform is built with Go (backend/CLI) and includes Python components for s
 - `internal/mcp/`: MCP protocol integration
 - `internal/options/`: Configuration management
 
+## Python Environment
+
+All Python commands (mcp-scan, AIG-PromptSecurity, etc.) **must** be run inside the `AI-Infra-Guard` conda environment:
+
+```bash
+conda run -n AI-Infra-Guard python ...
+# or activate first:
+conda activate AI-Infra-Guard
+```
+
+When executing Python-related Bash commands, always prefix with `conda run -n AI-Infra-Guard` to ensure the correct environment is used.
+
 ## Development Commands
 
 ### Building

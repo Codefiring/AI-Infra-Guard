@@ -1,16 +1,54 @@
 import logging
 
+import httpx
 import uvicorn
 from mcp.server import Server
 from mcp.server.fastmcp import FastMCP
 from mcp.server.sse import SseServerTransport
 from starlette.applications import Starlette
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
+from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 mcp = FastMCP("mcp_server")
+
+OAUTH_INTROSPECT_URL = "http://127.0.0.1:8000/oauth/introspect"
+
+
+class OAuthBearerMiddleware(BaseHTTPMiddleware):
+    """Validate OAuth 2.0 Bearer tokens on every incoming request."""
+
+    async def dispatch(self, request: Request, call_next):
+        auth = request.headers.get("Authorization", "")
+        if not auth.startswith("Bearer "):
+            return JSONResponse(
+                {"error": "missing_bearer_token"},
+                status_code=401,
+            )
+        token = auth.removeprefix("Bearer ").strip()
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    OAUTH_INTROSPECT_URL,
+                    data={"token": token},
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    timeout=5.0,
+                )
+            info = resp.json()
+        except Exception as e:
+            return JSONResponse(
+                {"error": "oauth_server_unreachable", "detail": str(e)},
+                status_code=503,
+            )
+        if not info.get("active"):
+            return JSONResponse(
+                {"error": "invalid_or_expired_token"},
+                status_code=401,
+            )
+        return await call_next(request)
 
 
 @mcp.tool()
@@ -87,13 +125,15 @@ def create_starlette_app(mcp_server: Server, *, debug: bool = False) -> Starlett
                 mcp_server.create_initialization_options(),
             )
 
-    return Starlette(
+    app = Starlette(
         debug=debug,
         routes=[
             Route("/sse", endpoint=handle_sse),
             Mount("/messages/", app=sse.handle_post_message),
         ],
     )
+    app.add_middleware(OAuthBearerMiddleware)
+    return app
 
 
 if __name__ == "__main__":
