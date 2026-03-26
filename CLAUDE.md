@@ -222,6 +222,36 @@ python main.py --config targets.yaml -k YOUR_API_KEY
 - Old format (simple URL strings) is still supported
 - Single-target mode works as before with `--server_url` flag
 
+### MCP OAuth 2.0 Support
+
+`mcp-scan` supports OAuth 2.0 Client Credentials flow for scanning OAuth-protected MCP servers.
+
+**CLI flags** (all required together; `--oauth-scope` is optional):
+```bash
+cd mcp-scan
+conda run -n AI-Infra-Guard python main.py \
+  --server_url http://your-mcp-server:port/sse \
+  --oauth-client-id my-client \
+  --oauth-client-secret my-secret \
+  --oauth-token-url https://auth.example.com/oauth/token \
+  --oauth-scope "mcp:read"
+```
+
+**Per-stage lifecycle**: Each of the 27 scan stages independently connects, authenticates (OAuth → connect), runs, and disconnects. Tokens are cached and auto-refreshed before expiry.
+
+**Per-stage OAuth toggle**: Each stage tuple in `malicious_stages` / `vuln_stages` in `agent/agent.py` has a 4th `bool` element (`use_oauth`). All stages default to `True` except:
+- **Stage 14 (Unauthenticated Access)**: `use_oauth=False` — connects without credentials to test whether the server enforces auth. Connection rejected (401) → no vulnerability; connection succeeds → vulnerability reported.
+
+**Key files**:
+- `mcp-scan/utils/mcp_oauth.py` — `OAuthConfig`, `OAuthManager` (Client Credentials, token caching)
+- `mcp-scan/tools/dispatcher.py` — `inject_oauth_token()`, `connect()`, `close()` (resets manager + headers)
+- `mcp-scan/agent/agent.py` — `execute_stage_dynamic()` lifecycle + per-stage `use_oauth` flag
+- `OAuth/OAuth-server.py` — Flask mock OAuth server for local testing (port 8000)
+  - Credentials: `test-client` / `test-secret` (scope: `mcp:read`)
+  - Endpoints: `POST /oauth/token`, `POST /oauth/introspect`
+
+**Adding OAuth protection to a Starlette MCP server**: See `mcp-scan/testcase/case1/main1.py` for `OAuthBearerMiddleware` — validates Bearer tokens against the introspect endpoint on every request.
+
 ### Agent Task Registration
 
 To add a new task type:
