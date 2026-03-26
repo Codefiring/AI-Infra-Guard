@@ -93,9 +93,13 @@ class ScanPipeline:
         # 1. Clear any stale connection from the previous stage
         await dispatcher.close()
 
-        # 2. OAUTH — get token before connecting so it is present in the headers
-        #    when the MCP connection is established (server may require auth on connect)
-        if use_oauth and dispatcher.oauth_manager is not None:
+        # 2. OAUTH — update headers before connecting
+        if not use_oauth:
+            # Strip any previously injected Bearer token so this stage connects
+            # with no credentials (required for Unauthenticated Access testing).
+            dispatcher.mcp_headers = dict(dispatcher._base_headers)
+            logger.debug(f"Stage {stage.stage_id}: OAuth disabled — headers reset to base (no Bearer token)")
+        elif dispatcher.oauth_manager is not None:
             logger.debug(f"Stage {stage.stage_id}: performing OAuth authentication")
             await dispatcher.inject_oauth_token()
 
