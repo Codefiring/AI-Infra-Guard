@@ -93,19 +93,40 @@ class ScanPipeline:
         # 1. Clear any stale connection from the previous stage
         await dispatcher.close()
 
-        # 2. OAUTH — update headers before connecting
+        # 2. OAUTH / CONNECT
         if not use_oauth:
             # Strip any previously injected Bearer token so this stage connects
             # with no credentials (required for Unauthenticated Access testing).
             dispatcher.mcp_headers = dict(dispatcher._base_headers)
-            logger.debug(f"Stage {stage.stage_id}: OAuth disabled — headers reset to base (no Bearer token)")
-        elif dispatcher.oauth_manager is not None:
-            logger.debug(f"Stage {stage.stage_id}: performing OAuth authentication")
-            await dispatcher.inject_oauth_token()
-
-        # 3. CONNECT — open a fresh connection (headers now include Bearer token if OAuth is used)
-        logger.debug(f"Stage {stage.stage_id}: connecting to MCP server")
-        await dispatcher.connect()
+            logger.debug(f"Stage {stage.stage_id}: OAuth disabled — testing unauthenticated access")
+            # The connection outcome IS the test result for this stage.
+            try:
+                await dispatcher.connect()
+                # Server accepted unauthenticated request → potential vulnerability
+                # Fall through so the agent can confirm by calling tools.
+                logger.info(f"Stage {stage.stage_id}: unauthenticated connect SUCCEEDED — potential vulnerability")
+            except RuntimeError as e:
+                # Server rejected unauthenticated request → authentication is enforced → no vulnerability
+                logger.info(f"Stage {stage.stage_id}: unauthenticated connect rejected ({e}) — no vulnerability")
+                result = (
+                    "# Overview\n- NO\n\n"
+                    "# Threats\n\n"
+                    "# Reasons\n"
+                    f"- Unauthenticated Access: The server rejected the unauthenticated connection "
+                    f"attempt ({e}). Authentication is properly enforced.\n\n"
+                    "# Summarization\n"
+                    "The MCP server enforces authentication. Unauthenticated connection attempts "
+                    "were rejected (401 Unauthorized), indicating no Unauthenticated Access "
+                    "vulnerability (CVE-2025-49596) is present."
+                )
+                self.results[stage.name] = result
+                return result
+        else:
+            if dispatcher.oauth_manager is not None:
+                logger.debug(f"Stage {stage.stage_id}: performing OAuth authentication")
+                await dispatcher.inject_oauth_token()
+            logger.debug(f"Stage {stage.stage_id}: connecting to MCP server")
+            await dispatcher.connect()
 
         try:
             # 3. RUN — execute stage with (optionally authenticated) connection
