@@ -508,7 +508,7 @@ function buildStageList(stageIds) {
     })),
     { stage_id:27, name:"Vulnerability Review", status:"pending", output:"" },
   ];
-  return list;
+  return list.map((r, i) => ({ ...r, position: i + 1 }));
 }
 
 function scoreColor(score) {
@@ -786,7 +786,7 @@ function renderStageCheckboxes(idx, malStages, vulnStages, selectedIds) {
     const checked = selSet.has(stage.id);
     return `<label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer;padding:4px;border-radius:4px;transition:background 0.1s;" onmouseover="this.style.background='rgba(255,255,255,0.04)'" onmouseout="this.style.background=''">
       <input type="checkbox" ${checked?"checked":""} onchange="toggleStage(${idx},${stage.id},this.checked)">
-      <span style="color:${checked?"var(--text-main)":"var(--text-muted)"};" title="${stage.name}">${stage.id}. ${stage.name.length > 22 ? stage.name.substring(0,22)+"…" : stage.name}</span>
+      <span style="color:${checked?"var(--text-main)":"var(--text-muted)"};" title="${stage.name}">${stage.name.length > 26 ? stage.name.substring(0,26)+"…" : stage.name}</span>
     </label>`;
   };
 
@@ -797,8 +797,8 @@ function renderStageCheckboxes(idx, malStages, vulnStages, selectedIds) {
   <div style="margin-top:10px;padding:10px;background:rgba(0,0,0,0.2);border-radius:8px;border:1px solid var(--border);">
     <!-- Always-on stages -->
     <div style="margin-bottom:10px;display:flex;gap:8px;">
-      <div class="stage-locked" style="flex:1;">🔒 <span style="color:#93c5fd;">Stage 1</span> Info Collection <span style="font-size:10px;margin-left:auto;color:var(--text-muted);">始终执行</span></div>
-      <div class="stage-locked" style="flex:1;">🔒 <span style="color:#93c5fd;">Stage 27</span> Vuln Review <span style="font-size:10px;margin-left:auto;color:var(--text-muted);">始终执行</span></div>
+      <div class="stage-locked" style="flex:1;">🔒 <span style="color:#93c5fd;">Info Collection</span> <span style="font-size:10px;margin-left:auto;color:var(--text-muted);">始终执行</span></div>
+      <div class="stage-locked" style="flex:1;">🔒 <span style="color:#93c5fd;">Vuln Review</span> <span style="font-size:10px;margin-left:auto;color:var(--text-muted);">始终执行</span></div>
     </div>
 
     <!-- Malicious group -->
@@ -894,7 +894,7 @@ function renderScanMode(task) {
               <span class="stage-icon">${stageIcon(s.status)}</span>
               <div style="flex:1;min-width:0;">
                 <div style="font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-                  <span style="color:var(--text-muted);margin-right:6px;">${s.stage_id}</span>${s.name}
+                  <span style="color:var(--text-muted);margin-right:6px;">${s.position}</span>${s.name}
                 </div>
               </div>
               ${s.status==="running" ? `<span style="font-size:10px;color:var(--blue);">运行中</span>` : ""}
@@ -921,7 +921,7 @@ function renderResultsPanel(task, target) {
     <div class="card" style="padding:14px 16px;flex-shrink:0;">
       <div style="display:flex;align-items:center;gap:10px;">
         <span style="color:var(--green);">✓</span>
-        <span style="font-size:13px;font-weight:600;">${selectedStage.stage_id}. ${selectedStage.name}</span>
+        <span style="font-size:13px;font-weight:600;">${selectedStage.name}</span>
         <span class="badge-count" style="margin-left:auto;cursor:pointer;" onclick="AppState.selectedStageId=null;render()">✕ 关闭</span>
       </div>
     </div>
@@ -931,7 +931,7 @@ function renderResultsPanel(task, target) {
   }
 
   // If stage 27 completed → show final report
-  const finalStage = target.stages.find(s => s.stage_id === 27);
+  const finalStage = target.stages[target.stages.length - 1];
   if (finalStage && finalStage.status === "completed" && target.score !== null) {
     return renderFinalReport(target);
   }
@@ -953,7 +953,7 @@ function renderResultsPanel(task, target) {
       <div style="font-size:14px;font-weight:600;color:var(--text-main);margin-bottom:6px;">
         ${target.status === "failed" ? "扫描失败" : target.status === "pending" ? "等待开始..." : "扫描进行中..."}
       </div>
-      ${runningStage ? `<div style="font-size:12px;color:var(--blue);">正在执行: ${runningStage.stage_id}. ${runningStage.name}</div>` : ""}
+      ${runningStage ? `<div style="font-size:12px;color:var(--blue);">正在执行: ${runningStage.name}</div>` : ""}
       ${target.error ? `<div style="font-size:12px;color:var(--red);margin-top:8px;">${target.error}</div>` : ""}
       <div style="font-size:12px;color:var(--text-muted);margin-top:8px;">已完成 ${completed} / ${total} 个阶段</div>
     </div>
@@ -1216,6 +1216,8 @@ function connectToTask(taskId) {
 
     es.addEventListener("init", e => {
       const task = JSON.parse(e.data);
+      // Assign sequential display positions to stages loaded from DB
+      task.targets?.forEach(t => t.stages?.forEach((s, i) => { s.position = i + 1; }));
       const idx = AppState.tasks.findIndex(t => t.id === taskId);
       if (idx >= 0) AppState.tasks[idx] = task; else AppState.tasks.unshift(task);
       if (AppState.selectedTaskId === taskId) {
