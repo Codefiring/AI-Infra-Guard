@@ -146,7 +146,7 @@ conda run -n AI-Infra-Guard python web_server.py
   - **恶意行为检测** (9 个)：TPA、FSP、ATPA、Rug Pull、Tool Name Spoofing、Tool Shadowing、Unauthenticated Access、Path Traversal、Privilege Abuse
   - **漏洞扫描** (6 个)：Resource Content Poisoning、Prompt Injection、Command Injection、RCE、Token/Credential Theft、SQL Injection
 - **LLM 服务管理**：通过 ⚙ 管理 Modal 创建多个 LLM 配置（名称、Base URL、API Key、模型），支持设为默认
-- **实时进度**：阶段卡片实时更新（SSE 推送），已完成阶段可点击查看 Markdown 输出
+- **实时进度**：阶段卡片按顺序编号（1, 2, 3 … N）动态显示，而非阶段内部 ID（ID 存在间隔如 2, 5, 14, 27）；已完成阶段可点击查看 Markdown 输出
 - **最终报告**：扫描完成后显示安全评分仪表盘、漏洞列表（可展开）和完整报告
 - **配置导出 / 导入**：将当前配置（目标、阶段选择、OAuth、Prompt）导出为 JSON 文件，下次可一键导入
 - **任务历史**：左侧边栏保存所有历史任务；数据持久化在 `mcp_scan.db` (SQLite)，重启后不丢失

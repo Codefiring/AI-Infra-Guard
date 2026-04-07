@@ -274,6 +274,11 @@ conda run -n AI-Infra-Guard python mcp-scan/web_server.py
 
 **`--stages` CLI flag** (added to `mcp-scan/main.py`): comma-separated stage IDs for single-target CLI runs (e.g. `--stages 2,5,11,14`). Per-target stages in batch YAML use the `stages:` key. Both pass `selected_stage_ids` to `agent.dynamic_analysis()`.
 
+**UI display conventions**:
+- Config phase checkboxes show stage names only (no ID numbers) — IDs are internal identifiers, not shown to users.
+- Scan progress cards show sequential position numbers (1, 2, 3 … N) derived from `stages.indexOf`, not raw stage IDs (which have intentional gaps like 2, 5, 14, 27). This makes "N of M stages completed" always consistent.
+- Final report detection uses the last element of `target.stages[]` rather than hardcoded `stage_id === 27`.
+
 **Runtime artifacts** (git-ignored): `mcp-scan/mcp_scan.db` (SQLite), `mcp-scan/_temp_*.yaml` (batch config, deleted after scan).
 
 ### Agent Task Registration
