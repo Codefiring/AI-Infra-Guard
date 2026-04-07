@@ -88,6 +88,13 @@ def parse_args():
     parser.add_argument("--language", default="zh", help="Output language (zh/en)")
 
     parser.add_argument(
+        "--stages",
+        default=None,
+        help="Comma-separated stage IDs to run (e.g. 2,5,11,14). "
+             "Stages 1 and 27 always run. Default: all stages."
+    )
+
+    parser.add_argument(
         "-c", "--config",
         default=None,
         help="Path to YAML config file containing target list (for batch scanning)"
@@ -204,13 +211,15 @@ def load_targets_from_config(config_path: str) -> list:
                     continue
                 normalized_targets.append({
                     'name': target.get('name'),
-                    'url': target['url']
+                    'url': target['url'],
+                    'stages': target.get('stages') or None,
                 })
             elif isinstance(target, str):
                 # Old format - simple URL string
                 normalized_targets.append({
                     'name': None,
-                    'url': target
+                    'url': target,
+                    'stages': None,
                 })
             else:
                 logger.warning(f"Invalid target format at index {idx}, skipping")
@@ -262,7 +271,7 @@ def build_oauth_config(args):
     return config
 
 
-async def scan_single_target(target_url: str, args, llm, specialized_llms, output_dir: Path, target_name: str = None, oauth_config=None):
+async def scan_single_target(target_url: str, args, llm, specialized_llms, output_dir: Path, target_name: str = None, oauth_config=None, selected_stage_ids: list = None):
     """Scan a single target and return results"""
     display_name = f"{target_name} ({target_url})" if target_name else target_url
 
@@ -311,7 +320,7 @@ async def scan_single_target(target_url: str, args, llm, specialized_llms, outpu
     result = None
     try:
         # Run dynamic analysis
-        result = await agent.dynamic_analysis(prompt)
+        result = await agent.dynamic_analysis(prompt, selected_stage_ids=selected_stage_ids)
         logger.info(f"Scan completed for {display_name}")
         logger.info(f"Results:\n{result}")
         return {"target": target_url, "name": target_name, "status": "success", "result": result}
@@ -351,6 +360,7 @@ async def batch_scan(targets: list, args, llm, specialized_llms):
         result = await scan_single_target(
             target_url, args, llm, specialized_llms, output_dir, target_name,
             oauth_config=oauth_config,
+            selected_stage_ids=target.get('stages'),
         )
         results.append(result)
 
@@ -412,6 +422,16 @@ async def main():
             raise
         return
 
+    # Parse --stages flag (single-target mode)
+    selected_ids = None
+    if getattr(args, "stages", None):
+        selected_ids = [int(s.strip()) for s in args.stages.split(",") if s.strip().isdigit()]
+        invalid = [s for s in selected_ids if s < 2 or s > 26]
+        if invalid:
+            logger.error(f"Invalid stage IDs (must be 2-26): {invalid}")
+            sys.exit(1)
+        logger.info(f"Stage filter: {sorted(selected_ids)}")
+
     # Single target mode (original logic)
     logger.info(f"Starting scan on: {args.repo}")
     prompt = args.prompt
@@ -447,7 +467,7 @@ async def main():
     try:
         if args.server_url:
             logger.info(f"Server mode enabled with URL: {args.server_url}")
-            dynamic_results = await agent.dynamic_analysis(prompt)
+            dynamic_results = await agent.dynamic_analysis(prompt, selected_stage_ids=selected_ids)
             logger.info(f"Dynamic analysis results:\n{dynamic_results}")
         else:
             # 验证项目路径

@@ -275,7 +275,7 @@ markdown格式返回
         mcpLogger.result_update(result_meta)
         return result_meta
 
-    async def dynamic_analysis(self, prompt: str):
+    async def dynamic_analysis(self, prompt: str, selected_stage_ids: list | None = None):
         result_meta = {
             "readme": "",
             "score": 0,
@@ -352,6 +352,12 @@ markdown格式返回
             ("25", "Configuration File Exposure",             "agents/dynamic/vuln/config_exposure",     True),
             ("26", "Cross-Tenant Data Exposure",              "agents/dynamic/vuln/cross_tenant_exposure", True),
         ]
+
+        # Filter stages when caller specifies a subset
+        if selected_stage_ids is not None:
+            id_set = {int(i) for i in selected_stage_ids}
+            malicious_stages = [s for s in malicious_stages if int(s[0]) in id_set]
+            vuln_stages      = [s for s in vuln_stages      if int(s[0]) in id_set]
 
         all_reports = []
         for stage_id, stage_name, template, use_oauth in malicious_stages + vuln_stages:
