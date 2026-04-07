@@ -91,6 +91,7 @@ python main.py --repo <项目路径> [选项]
 | `--oauth-client-secret` | - | OAuth 2.0 Client Secret | `None` |
 | `--oauth-token-url` | - | OAuth 2.0 Token 端点 URL | `None` |
 | `--oauth-scope` | - | OAuth 2.0 Scope（可选，空格分隔） | `None` |
+| `--stages` | - | 指定要运行的阶段 ID（逗号分隔，如 `2,5,11,14`）；阶段 1 和 27 始终运行；默认运行全部 15 个可选阶段 | `None` |
 
 ### 使用示例
 
@@ -126,6 +127,39 @@ python main.py \
   --oauth-token-url "https://auth.example.com/oauth/token" \
   --oauth-scope "mcp:read"
 ```
+
+## 🌐 Web UI
+
+除命令行外，mcp-scan 还提供一个基于浏览器的可视化操作界面。
+
+### 启动
+
+```bash
+conda run -n AI-Infra-Guard python web_server.py
+# 访问 http://localhost:7788
+```
+
+### 功能
+
+- **多目标批量扫描**：在界面中添加多个 MCP Server URL，每个目标可独立配置扫描阶段
+- **每目标阶段选择**：15 个可选阶段分为两大类（阶段 1 和 27 始终执行）：
+  - **恶意行为检测** (9 个)：TPA、FSP、ATPA、Rug Pull、Tool Name Spoofing、Tool Shadowing、Unauthenticated Access、Path Traversal、Privilege Abuse
+  - **漏洞扫描** (6 个)：Resource Content Poisoning、Prompt Injection、Command Injection、RCE、Token/Credential Theft、SQL Injection
+- **LLM 服务管理**：通过 ⚙ 管理 Modal 创建多个 LLM 配置（名称、Base URL、API Key、模型），支持设为默认
+- **实时进度**：阶段卡片实时更新（SSE 推送），已完成阶段可点击查看 Markdown 输出
+- **最终报告**：扫描完成后显示安全评分仪表盘、漏洞列表（可展开）和完整报告
+- **配置导出 / 导入**：将当前配置（目标、阶段选择、OAuth、Prompt）导出为 JSON 文件，下次可一键导入
+- **任务历史**：左侧边栏保存所有历史任务；数据持久化在 `mcp_scan.db` (SQLite)，重启后不丢失
+
+### 关键文件
+
+| 文件 | 说明 |
+|------|------|
+| `web_server.py` | FastAPI 后端，端口 7788；管理子进程、日志解析、SSE 推送、SQLite 持久化 |
+| `db.py` | SQLite 数据库层：schema DDL、CRUD helpers（任务、目标、阶段、漏洞、LLM Profile） |
+| `web/index.html` | 单页前端（Tailwind CDN + marked.js）；无需构建步骤 |
+
+---
 
 ## ⚙️ 配置说明
 
@@ -185,7 +219,7 @@ LOG_LEVEL=INFO  # DEBUG, INFO, WARNING, ERROR
 ```
 mcp-scan/
 ├── agent/                  # Agent 核心实现
-│   ├── agent.py           # 主 Agent（多阶段扫描流程）
+│   ├── agent.py           # 主 Agent（多阶段扫描流程，支持 selected_stage_ids 过滤）
 │   └── base_agent.py      # 基础 Agent 类
 ├── tools/                  # 工具模块
 │   ├── registry.py        # 工具注册系统
@@ -211,7 +245,11 @@ mcp-scan/
 │       ├── project_summary.md # 信息收集（含 Skill 识别）
 │       ├── code_audit.md      # 代码审计（含 Skill 一致性审计）
 │       └── vuln_review.md     # 漏洞整理
-├── main.py                 # 主入口
+├── web/                    # Web UI 前端
+│   └── index.html         # 单页应用（Tailwind CDN + marked.js，无需构建）
+├── web_server.py           # FastAPI Web 后端（端口 7788）
+├── db.py                   # SQLite 数据库层（schema、CRUD helpers）
+├── main.py                 # 主入口（含 --stages 参数）
 ├── requirements.txt        # 依赖列表
 ├── env.example            # 环境变量模板
 └── README.md              # 本文档

@@ -252,6 +252,30 @@ conda run -n AI-Infra-Guard python main.py \
 
 **Adding OAuth protection to a Starlette MCP server**: See `mcp-scan/testcase/case1/main1.py` for `OAuthBearerMiddleware` — validates Bearer tokens against the introspect endpoint on every request.
 
+### mcp-scan Web UI
+
+A browser-based interface for mcp-scan. **Startup**:
+```bash
+conda run -n AI-Infra-Guard python mcp-scan/web_server.py
+# → http://localhost:7788
+```
+
+**Key files**:
+- `mcp-scan/web_server.py` — FastAPI backend; manages subprocesses, log parsing (LogParser state machine), SSE event streaming, SQLite persistence
+- `mcp-scan/db.py` — SQLite layer (WAL mode, `get_db()` context manager, CRUD for 5 tables: `llm_profiles`, `tasks`, `task_targets`, `task_stages`, `vulnerabilities`)
+- `mcp-scan/web/index.html` — SPA; Tailwind CSS Play CDN + marked.js; no build step
+
+**Stage catalogue** — 15 selectable stages (IDs 2–26); Stages 1 and 27 always run:
+
+| Group | Stage IDs |
+|-------|-----------|
+| 恶意行为检测 (9) | 2 TPA, 3 FSP, 4 ATPA, 5 Rug Pull, 7 Tool Name Spoofing, 8 Tool Shadowing, 14 Unauthenticated Access, 18 Path Traversal, 21 Privilege Abuse |
+| 漏洞扫描 (6) | 9 Resource Content Poisoning, 11 Prompt Injection, 12 Command Injection, 13 RCE, 16 Token/Credential Theft, 23 SQL Injection |
+
+**`--stages` CLI flag** (added to `mcp-scan/main.py`): comma-separated stage IDs for single-target CLI runs (e.g. `--stages 2,5,11,14`). Per-target stages in batch YAML use the `stages:` key. Both pass `selected_stage_ids` to `agent.dynamic_analysis()`.
+
+**Runtime artifacts** (git-ignored): `mcp-scan/mcp_scan.db` (SQLite), `mcp-scan/_temp_*.yaml` (batch config, deleted after scan).
+
 ### Agent Task Registration
 
 To add a new task type:
