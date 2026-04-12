@@ -1,5 +1,6 @@
 import os
 import time
+import uuid
 from typing import List, Dict, Any, Optional
 
 from agent.base_agent import BaseAgent
@@ -275,7 +276,8 @@ markdown格式返回
         mcpLogger.result_update(result_meta)
         return result_meta
 
-    async def dynamic_analysis(self, prompt: str, selected_stage_ids: list | None = None):
+    async def dynamic_analysis(self, prompt: str, selected_stage_ids: list | None = None,
+                               task_target_id: str | None = None):
         result_meta = {
             "readme": "",
             "score": 0,
@@ -285,14 +287,31 @@ markdown格式返回
             "results": [],
         }
 
+        # Optional direct DB writes — used when launched from web_server (task_target_id provided)
+        _db_mod = None
+        if task_target_id:
+            try:
+                import db as _db_mod
+            except ImportError:
+                pass
+
+        def _stage_db(stage_id: int, status: str, output: str = ""):
+            if _db_mod and task_target_id:
+                try:
+                    _db_mod.stage_update(task_target_id, stage_id, status, output)
+                except Exception:
+                    pass
+
         # Stage 1: Info Collection
         info_ret_format = "生成一份详细的MCP(model context protocol)信息收集报告，使用Markdown格式。报告需基于输入数据如实总结，确保读者（对项目一无所知）能快速理解项目全貌。"
+        _stage_db(1, "running")
         info_collection = await self.pipeline.execute_stage_dynamic(
             ScanStage("1", "Info Collection", "agents/dynamic/project_summary", output_format=info_ret_format,
                       language=self.language),
             prompt=prompt
         )
         result_meta["readme"] = info_collection
+        _stage_db(1, "completed", info_collection)
 
         # Per-type scan output format
         vuln_ret_format = '''
@@ -361,12 +380,14 @@ markdown格式返回
 
         all_reports = []
         for stage_id, stage_name, template, use_oauth in malicious_stages + vuln_stages:
+            _stage_db(int(stage_id), "running")
             report = await self.pipeline.execute_stage_dynamic(
                 ScanStage(stage_id, stage_name, template,
                           output_format=vuln_ret_format, language=self.language),
                 prompt, {"信息收集报告": info_collection},
                 use_oauth=use_oauth,
             )
+            _stage_db(int(stage_id), "completed", report)
             all_reports.append((stage_name, report))
 
         # Stage 27: Vulnerability Review — consolidate all per-type reports
@@ -397,12 +418,14 @@ markdown格式返回
         '''.strip()
         vuln_review_check = lambda x: '<vuln>' in x or '<empty>' in x
         review_context = {name: report for name, report in all_reports}
+        _stage_db(27, "running")
         vuln_review = await self.pipeline.execute_stage_dynamic(
             ScanStage("27", "Vulnerability Review", "agents/dynamic/general_analyzing_prompt_template",
                       output_format=review_format,
                       output_check_fn=vuln_review_check, language=self.language),
             prompt, review_context
         )
+        _stage_db(27, "completed", vuln_review)
 
         # 提取与分析结果
         extractor = VulnerabilityExtractor()
@@ -415,5 +438,25 @@ markdown格式返回
             "end_time": time.time(),
             "results": vuln_results
         })
+
+        # Write final results to DB
+        if _db_mod and task_target_id:
+            try:
+                vuln_rows = [
+                    {
+                        "id":          str(uuid.uuid4())[:8],
+                        "title":       v.get("title", ""),
+                        "description": v.get("description", ""),
+                        "risk_type":   v.get("risk_type", ""),
+                        "level":       v.get("level", ""),
+                        "suggestion":  v.get("suggestion", ""),
+                    }
+                    for v in vuln_results
+                ]
+                _db_mod.vulnerabilities_insert(task_target_id, vuln_rows)
+                _db_mod.target_set_done(task_target_id, safety_score, info_collection)
+            except Exception:
+                pass
+
         mcpLogger.result_update(result_meta)
         return result_meta

@@ -122,6 +122,17 @@ def parse_args():
         help="OAuth 2.0 scope (optional, space-separated)",
     )
 
+    parser.add_argument(
+        "--task-id",
+        default=None,
+        help="DB task ID (set by web server for direct DB writes)",
+    )
+    parser.add_argument(
+        "--target-id",
+        default=None,
+        help="DB task_target ID (set by web server for direct DB writes)",
+    )
+
     return parser.parse_args()
 
 
@@ -464,10 +475,28 @@ async def main():
     oauth_config = build_oauth_config(args)
     agent = Agent(llm=llm, specialized_llms=specialized_llms, debug=args.debug, server_url=args.server_url,
                   language=args.language, headers=headers, oauth_config=oauth_config)
+
+    task_id_arg   = getattr(args, "task_id",   None)
+    target_id_arg = getattr(args, "target_id", None)
+
+    # Mark task/target as running in DB (web server created the rows)
+    if task_id_arg:
+        try:
+            from db import task_set_running, target_set_running as _target_set_running
+            task_set_running(task_id_arg, log_file=None)
+            if target_id_arg:
+                _target_set_running(target_id_arg)
+        except Exception as e:
+            logger.warning(f"DB init: {e}")
+
+    _scan_succeeded = False
     try:
         if args.server_url:
             logger.info(f"Server mode enabled with URL: {args.server_url}")
-            dynamic_results = await agent.dynamic_analysis(prompt, selected_stage_ids=selected_ids)
+            dynamic_results = await agent.dynamic_analysis(
+                prompt, selected_stage_ids=selected_ids, task_target_id=target_id_arg
+            )
+            _scan_succeeded = True
             logger.info(f"Dynamic analysis results:\n{dynamic_results}")
         else:
             # 验证项目路径
@@ -479,6 +508,7 @@ async def main():
                 logger.error(f"Project path is not a directory: {args.repo}")
                 sys.exit(1)
             result = await agent.scan(args.repo, prompt)
+            _scan_succeeded = True
             logger.info(f"Scan completed successfully:\n\n {result}")
     except KeyboardInterrupt:
         print("\n\nTask interrupted by user.")
@@ -489,6 +519,13 @@ async def main():
         mcpLogger.error_log(f"Execution failed: {e}")
         raise Exception(f"Execution failed: {e}")
     finally:
+        # Mark task done in DB (poll_task_db in web_server reads this)
+        if task_id_arg:
+            try:
+                from db import task_set_done as _task_set_done
+                _task_set_done(task_id_arg, "completed" if _scan_succeeded else "failed")
+            except Exception:
+                pass
         # 确保关闭资源
         if hasattr(agent, 'dispatcher'):
             await agent.dispatcher.close()
