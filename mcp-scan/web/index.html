@@ -1243,8 +1243,14 @@ async function loadLlmProfiles() {
     if (!res.ok) return;
     const profiles = await res.json();
     AppState.llmProfiles = profiles;
-    const def = profiles.find(p => p.is_default);
-    if (def && !AppState.selectedLlmProfileId) AppState.selectedLlmProfileId = def.id;
+    // Keep current selection only if it exists in the real backend profile list;
+    // otherwise fall back to default (or first). This prevents the mock "llm-1"
+    // ID from persisting and causing a "profile not found" 404 on scan start.
+    const currentValid = profiles.find(p => p.id === AppState.selectedLlmProfileId);
+    if (!currentValid) {
+      const def = profiles.find(p => p.is_default);
+      AppState.selectedLlmProfileId = def?.id || profiles[0]?.id || null;
+    }
     render();
   } catch(e) { /* backend not available */ }
 }
