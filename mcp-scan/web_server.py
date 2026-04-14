@@ -184,7 +184,28 @@ def poll_task_db(task_id: str, proc: subprocess.Popen):
         if task and task["status"] == "running":
             # mcp-scan crashed without calling task_set_done
             db.task_set_done(task_id, "failed", f"Process exited (code {proc.returncode})")
+        # Final flush — catch stage/result events written during the last poll interval
         task = db.task_get(task_id)
+        if task and task["targets"]:
+            target = task["targets"][0]
+            for s in target.get("stages", []):
+                sid, new_st = s["stage_id"], s["status"]
+                if last_stages.get(sid) != new_st:
+                    push_event(task_id, "stage", {
+                        "stage_id": sid,
+                        "name":     s["name"],
+                        "status":   new_st,
+                        "output":   s.get("output", "") if new_st == "completed" else "",
+                    })
+                    last_stages[sid] = new_st
+            if not result_sent and target.get("score") is not None:
+                push_event(task_id, "result", {
+                    "target_index": 0,
+                    "score":        target["score"],
+                    "results":      target.get("vulnerabilities", []),
+                    "readme":       target.get("readme", ""),
+                })
+                result_sent = True
         final_status = (task or {}).get("status", "failed")
         push_event(task_id, "done", {"status": final_status})
 
