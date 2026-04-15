@@ -226,11 +226,15 @@ markdown格式返回
         # 3. 漏洞整理
         review_format = '''
 必须满足以下xml格式，多个漏洞返回多个vuln标签
+MCP安全扫描共覆盖15类风险：恶意行为检测包括 MCP02 工具投毒(TPA)、MCP03 全模式投毒(FSP)、MCP04 高级工具投毒(ATPA)、MCP05
+    撤毯攻击(Rug Pull)、MCP07 工具名称欺骗、MCP08 工具遮蔽、MCP14 未授权访问、MCP18 路径穿越、MCP21 权限滥用；漏洞扫描包括
+    MCP09 资源内容投毒、MCP11 提示词注入、MCP12 命令注入、MCP13 远程代码执行(RCE)、MCP16 令牌/凭证窃取、MCP23 SQL注入。
 <vuln>
   <title>title</title>
   <desc>
   <!-- Markdown格式漏洞描述 -->
   ## 漏洞详情
+  **接口名称**: 
   **文件位置**: 
   **漏洞类型**: 
   **风险等级**: 
@@ -241,7 +245,7 @@ markdown格式返回
   
   ### 影响评估  
   </desc>
-  <risk_type>Short identifier only, e.g. MCP01 / MCP05 / Name Confusion / CWE-78</risk_type>
+  <risk_type>Short identifier only, e.g. MCP01 / MCP05 </risk_type>
   <level>Level</level>
   <suggestion>
   ## 修复建议
@@ -313,23 +317,24 @@ markdown格式返回
         result_meta["readme"] = info_collection
         _stage_db(1, "completed", info_collection)
 
-        # Per-type scan output format
-        vuln_ret_format = '''
-## Output format
+        # Per-type scan output format — risk_type is injected per stage to prevent LLM hallucination
+        def make_vuln_format(risk_type: str) -> str:
+            return f'''## Output format
 - The output should be in Markdown format. Please Never use any other format, and make sure the output has no format issue.
 - The Markdown document should have the following Chapter:
     - "Overview": `YES` or `NO`, representing whether there are any risks analyzed.
     - "Threats": A list of xml strings, each representing a threat analyzed. Including threat types, confidence scores, and potential impacts.
     - "Reasons": A list of normal strings, each representing the reason why the corresponding threat is analyzed.
     - "Summarization": A paragraph summarizing the overall security assessment results.
+- The risk type for this stage is: {risk_type}. You MUST use exactly "{risk_type}" as the <type> value in every threat entry.
 - example:
     ```
     # Overview
     - YES
     # Threats
-        - <threat><tool_name>{{ tool_name }}</tool_name><type>SQL Injection</type><confidence>0.9</confidence><impact>High</impact></threat>
+        - <threat><tool_name>{{{{ tool_name }}}}</tool_name><type>{risk_type}</type><confidence>0.9</confidence><impact>High</impact></threat>
     # Reasons
-        - SQL Injection: The tool named {{ tool_name }} detected a potential SQL Injection vulnerability in the input parameter.
+        - {risk_type}: The tool named {{{{ tool_name }}}} detected a potential {risk_type} vulnerability in the input parameter.
     # Summarization:
         ...... (The clear, detailed summary of the security assessment results)
     ```
@@ -380,10 +385,11 @@ markdown格式返回
 
         all_reports = []
         for stage_id, stage_name, template, use_oauth in malicious_stages + vuln_stages:
+            risk_type = f"MCP{int(stage_id):02d}"
             _stage_db(int(stage_id), "running")
             report = await self.pipeline.execute_stage_dynamic(
                 ScanStage(stage_id, stage_name, template,
-                          output_format=vuln_ret_format, language=self.language),
+                          output_format=make_vuln_format(risk_type), language=self.language),
                 prompt, {"信息收集报告": info_collection},
                 use_oauth=use_oauth,
             )
