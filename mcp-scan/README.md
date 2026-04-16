@@ -288,10 +288,21 @@ MCP-Scan 采用多阶段自动化流程：
 
 基于 [Adversa AI MCP Security TOP 25](https://adversa.ai/mcp-security-top-25-mcp-vulnerabilities/) 标准，**完整覆盖所有 25 个漏洞 (100%)**：
 
+> **检测范式说明**
+>
+> 部分阶段为**静态元数据分析**（不调用任何远程工具）：Agent 直接检查已知的工具描述文本（`<mcp_tools>` 块），无需执行任何 MCP 工具调用即可发现威胁证据。
+>
+> | 阶段 | 范式 | 说明 |
+> |------|------|------|
+> | Stage 2 TPA | 静态 | 检测工具 description 中的零宽字符、BiDi 控制符、同形字、隐藏指令等 |
+> | Stage 3 FSP | 静态 | 检测整个 schema（参数名/类型/示例/约束）中的恶意内容 |
+> | Stage 4 ATPA | 静态 | 检测多层编码、隐写术、条件触发等高级投毒手法 |
+> | Stage 7 Tool Name Spoofing | 静态 | 检测工具名中的同形字替换与命名空间碰撞 |
+
 **Critical 级别 (5/5 = 100%)**
 1. ✅ Prompt Injection - 提示词注入
 2. ✅ Command Injection - 命令注入
-3. ✅ Tool Poisoning (TPA) - 工具投毒
+3. ✅ Tool Poisoning (TPA) - 工具投毒（静态描述分析）
 4. ✅ Remote Code Execution (RCE) - 远程代码执行
 5. ✅ Unauthenticated Access - 未授权访问
 

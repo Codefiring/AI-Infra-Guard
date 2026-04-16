@@ -281,6 +281,29 @@ conda run -n AI-Infra-Guard python mcp-scan/web_server.py
 
 **Runtime artifacts** (git-ignored): `mcp-scan/mcp_scan.db` (SQLite), `mcp-scan/_temp_*.yaml` (batch config, deleted after scan).
 
+### mcp-scan Prompt Architecture: Static vs Dynamic Detection
+
+Malicious-behavior detection stages are split into two distinct paradigms. **Do not mix them up when editing prompts.**
+
+**Static analysis stages** (no remote tool calls): The LLM analyzes tool metadata that is already present in the system prompt (`<mcp_tools>` block). The agent should enumerate fields, apply checks, then call `finish` with its findings. `_format_final_output()` structures the result. Prompts must NOT instruct the LLM to output `<mcp_tool_calls>` or call remote MCP tools.
+
+| Stage | Type | Why static |
+|-------|------|------------|
+| 2 TPA  | Static | Evidence is in the description text itself (Unicode chars, hidden directives) |
+| 3 FSP  | Static | Evidence spans all schema fields simultaneously |
+| 4 ATPA | Static | Multi-layer encoding/steganography detectable from metadata alone |
+| 7 Tool Name Spoofing | Static | Homoglyphs/lookalikes visible in tool names |
+
+**Dynamic stages** (may call remote MCP tools): The agent actually invokes tools on the target server to observe runtime behavior. Prompts output `<mcp_tool_calls>` blocks or call `mcp_tool` directly.
+
+**TPA detection checklist** (implemented in `mcp-scan/prompt/agents/dynamic/malicious/tpa.md`):
+- Zero-width / invisible chars: U+200B, U+200C, U+200D, U+FEFF, U+00AD, U+2060
+- Bidirectional control chars: U+202E (RLO), U+202D (LRO), U+200F (RLM), U+200E (LRM), U+2066–U+2069
+- Homoglyphs: Cyrillic/Greek substitutions for Latin letters
+- ANSI/control-sequence injection: `\x1b[`, `\033[`
+- Hidden natural-language directives embedded in description text
+- Encoding tricks: base64 blobs, percent-encoding, HTML entities, null bytes
+
 ### Agent Task Registration
 
 To add a new task type:
