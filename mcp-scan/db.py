@@ -99,6 +99,23 @@ CREATE INDEX IF NOT EXISTS idx_tasks_status   ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_targets_task   ON task_targets(task_id, position);
 CREATE INDEX IF NOT EXISTS idx_stages_target  ON task_stages(task_target_id, stage_id);
 CREATE INDEX IF NOT EXISTS idx_vulns_target   ON vulnerabilities(task_target_id);
+
+CREATE TABLE IF NOT EXISTS saved_configs (
+    id               TEXT PRIMARY KEY,
+    name             TEXT NOT NULL,
+    created_at       TEXT NOT NULL,
+    url              TEXT NOT NULL,
+    stage_ids        TEXT,
+    prompt           TEXT NOT NULL DEFAULT '',
+    language         TEXT NOT NULL DEFAULT 'zh',
+    llm_profile_id   TEXT,
+    llm_profile_name TEXT,
+    oauth_client_id      TEXT,
+    oauth_client_secret  TEXT,
+    oauth_token_url      TEXT,
+    oauth_scope          TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_configs_created ON saved_configs(created_at DESC);
 """
 
 
@@ -408,6 +425,40 @@ def profile_has_active_tasks(profile_id: str) -> bool:
             (profile_id,)
         ).fetchone()
     return row is not None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Saved configs
+# ─────────────────────────────────────────────────────────────────────────────
+def configs_list() -> list[dict]:
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM saved_configs ORDER BY created_at DESC"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def config_create(data: dict) -> dict:
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO saved_configs (id,name,created_at,url,stage_ids,prompt,language,"
+            "llm_profile_id,llm_profile_name,oauth_client_id,oauth_client_secret,"
+            "oauth_token_url,oauth_scope) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (data["id"], data["name"], data["created_at"], data["url"],
+             data.get("stage_ids"), data.get("prompt", ""), data.get("language", "zh"),
+             data.get("llm_profile_id"), data.get("llm_profile_name"),
+             data.get("oauth_client_id"), data.get("oauth_client_secret"),
+             data.get("oauth_token_url"), data.get("oauth_scope"))
+        )
+        row = conn.execute(
+            "SELECT * FROM saved_configs WHERE id=?", (data["id"],)
+        ).fetchone()
+    return dict(row)
+
+
+def config_delete(config_id: str):
+    with get_db() as conn:
+        conn.execute("DELETE FROM saved_configs WHERE id=?", (config_id,))
 
 
 # ─────────────────────────────────────────────────────────────────────────────

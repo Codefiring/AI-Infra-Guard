@@ -121,6 +121,19 @@ class LlmProfileIn(BaseModel):
     is_default: bool = False
 
 
+class ConfigIn(BaseModel):
+    name:             str
+    url:              str
+    stage_ids:        list[int] | None = None
+    prompt:           str = ""
+    language:         str = "zh"
+    llm_profile_id:   str | None = None
+    oauth_client_id:      str | None = None
+    oauth_client_secret:  str | None = None
+    oauth_token_url:      str | None = None
+    oauth_scope:          str | None = None
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Build stage list helper
 # ─────────────────────────────────────────────────────────────────────────────
@@ -315,6 +328,40 @@ async def delete_llm_profile(profile_id: str):
     if db.profile_has_active_tasks(profile_id):
         raise HTTPException(409, "Profile is used by a running task")
     db.llm_profile_delete(profile_id)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# API — Saved configs
+# ─────────────────────────────────────────────────────────────────────────────
+@app.get("/api/configs")
+async def list_configs():
+    return db.configs_list()
+
+
+@app.post("/api/configs", status_code=201)
+async def create_config(body: ConfigIn):
+    profile = db.llm_profile_get(body.llm_profile_id) if body.llm_profile_id else None
+    stage_ids_json = json.dumps(body.stage_ids) if body.stage_ids is not None else None
+    return db.config_create({
+        "id":               str(uuid.uuid4())[:8],
+        "name":             body.name,
+        "created_at":       db.now_iso(),
+        "url":              body.url,
+        "stage_ids":        stage_ids_json,
+        "prompt":           body.prompt,
+        "language":         body.language,
+        "llm_profile_id":   body.llm_profile_id,
+        "llm_profile_name": profile["name"] if profile else None,
+        "oauth_client_id":      body.oauth_client_id,
+        "oauth_client_secret":  body.oauth_client_secret,
+        "oauth_token_url":      body.oauth_token_url,
+        "oauth_scope":          body.oauth_scope,
+    })
+
+
+@app.delete("/api/configs/{config_id}", status_code=204)
+async def delete_config(config_id: str):
+    db.config_delete(config_id)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

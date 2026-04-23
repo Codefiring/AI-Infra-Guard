@@ -367,6 +367,7 @@ STAGE_MAP[27] = { id:27, name:"Vulnerability Review" };
 const AppState = {
   tasks: [],
   llmProfiles: [],
+  savedConfigs: [],
   selectedTaskId: null,
   selectedStageId: null,
   showLlmModal: false,
@@ -633,7 +634,8 @@ function renderConfigMode() {
   const scanDisabled = noProfile || noUrl || urlInvalid || noStages;
 
   return `
-  <div style="max-width:700px;margin:0 auto;">
+  <div style="display:flex;gap:16px;align-items:flex-start;">
+  <div style="flex:1;min-width:0;max-width:700px;">
     <div style="margin-bottom:20px;">
       <h2 style="font-size:18px;font-weight:700;margin-bottom:4px;" class="gradient-text">新建扫描任务</h2>
       <div style="font-size:13px;color:var(--text-muted);">配置扫描目标与参数，点击开始扫描</div>
@@ -760,6 +762,7 @@ function renderConfigMode() {
     <!-- Export / Import / Start -->
     <div class="card" style="padding:16px;">
       <div style="display:flex;gap:10px;margin-bottom:12px;">
+        <button class="btn-secondary" style="flex:1;" onclick="saveConfig()">💾 保存配置</button>
         <button class="btn-secondary" style="flex:1;" onclick="exportConfig()">↓ 导出配置</button>
         <button class="btn-secondary" style="flex:1;" onclick="document.getElementById('import-input').click()">↑ 导入配置</button>
       </div>
@@ -767,6 +770,46 @@ function renderConfigMode() {
         ${noProfile ? "请先配置 LLM 服务" : "开始扫描"}
       </button>
     </div>
+  </div>
+  ${renderSavedConfigsPanel()}
+  </div>`;
+}
+
+function renderSavedConfigsPanel() {
+  const configs = AppState.savedConfigs;
+  const items = configs.length === 0
+    ? `<div style="font-size:12px;color:var(--text-muted);text-align:center;padding:20px 0;">暂无保存的配置</div>`
+    : configs.map(c => {
+        const cfg = JSON.stringify(c).replace(/\\/g,"\\\\").replace(/"/g,"&quot;");
+        return `
+        <div onclick="applyConfig(JSON.parse(this.dataset.cfg))" data-cfg="${cfg}"
+             style="cursor:pointer;padding:8px 10px;border-radius:8px;margin-bottom:4px;
+                    background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);
+                    transition:background 0.15s;display:flex;align-items:center;gap:6px;"
+             onmouseover="this.style.background='rgba(255,255,255,0.07)'"
+             onmouseout="this.style.background='rgba(255,255,255,0.03)'">
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:12px;font-weight:500;color:var(--text-main);
+                        white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
+                 title="${c.name}">${c.name}</div>
+            <div style="font-size:10px;color:var(--text-muted);margin-top:2px;
+                        white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
+                 title="${c.url}">${c.url}</div>
+          </div>
+          <button onclick="event.stopPropagation();deleteSavedConfig('${c.id}')"
+                  style="flex-shrink:0;background:none;border:none;cursor:pointer;
+                         color:#6b7280;font-size:14px;padding:2px 4px;line-height:1;"
+                  onmouseover="this.style.color='#f87171'" onmouseout="this.style.color='#6b7280'"
+                  title="删除">✕</button>
+        </div>`;
+      }).join("");
+
+  return `
+  <div style="width:220px;flex-shrink:0;padding-top:2px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+      <span style="font-size:13px;font-weight:600;color:var(--text-main);">保存的配置</span>
+    </div>
+    ${items}
   </div>`;
 }
 
@@ -1227,6 +1270,64 @@ async function loadTasks() {
   } catch(e) { /* backend not available in Phase 1 */ }
 }
 
+async function loadSavedConfigs() {
+  try {
+    const r = await fetch("/api/configs");
+    AppState.savedConfigs = r.ok ? await r.json() : [];
+  } catch(e) { AppState.savedConfigs = []; }
+}
+
+async function saveConfig() {
+  const name = prompt("配置名称：", AppState.configForm.url || "新配置");
+  if (!name) return;
+  const form = AppState.configForm;
+  await fetch("/api/configs", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({
+      name,
+      url: form.url,
+      stage_ids: form.stage_ids.length < ALL_STAGE_IDS.length ? form.stage_ids : null,
+      prompt: form.prompt,
+      language: form.language,
+      llm_profile_id: AppState.selectedLlmProfileId || null,
+      oauth_client_id: form.oauth_client_id || null,
+      oauth_client_secret: form.oauth_client_secret || null,
+      oauth_token_url: form.oauth_token_url || null,
+      oauth_scope: form.oauth_scope || null,
+    })
+  });
+  await loadSavedConfigs();
+  render();
+}
+
+function applyConfig(cfg) {
+  const stageIds = cfg.stage_ids ? JSON.parse(cfg.stage_ids) : [...ALL_STAGE_IDS];
+  AppState.configForm = {
+    url: cfg.url || "",
+    stage_ids: stageIds,
+    stagesOpen: false,
+    prompt: cfg.prompt || "",
+    language: cfg.language || "zh",
+    oauth_client_id: cfg.oauth_client_id || "",
+    oauth_client_secret: cfg.oauth_client_secret || "",
+    oauth_token_url: cfg.oauth_token_url || "",
+    oauth_scope: cfg.oauth_scope || "",
+  };
+  if (cfg.llm_profile_id) {
+    const match = AppState.llmProfiles.find(p => p.id === cfg.llm_profile_id);
+    if (match) AppState.selectedLlmProfileId = match.id;
+  }
+  AppState.selectedTaskId = null;
+  render();
+}
+
+async function deleteSavedConfig(id) {
+  await fetch(`/api/configs/${id}`, { method: "DELETE" });
+  await loadSavedConfigs();
+  render();
+}
+
 async function loadLlmProfiles() {
   try {
     const res = await fetch("/api/llm-profiles");
@@ -1408,7 +1509,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   render();
 
   // Try to load real data from backend (will silently fail if not running)
-  await Promise.all([loadTasks(), loadLlmProfiles()]);
+  await Promise.all([loadTasks(), loadLlmProfiles(), loadSavedConfigs()]);
 
   // Auto-connect SSE for any running task
   const running = AppState.tasks.find(t => t.status === "running");
