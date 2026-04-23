@@ -340,26 +340,26 @@
 //  STAGE CATALOGUE
 // ═══════════════════════════════════════════════════════════════
 const ALL_STAGES = [
-  { id:  2, name: "Tool Poisoning (TPA)",          category: "malicious" },
-  { id:  3, name: "Full Schema Poisoning (FSP)",   category: "malicious" },
-  { id:  4, name: "Advanced Tool Poisoning (ATPA)",category: "malicious" },
-  { id:  5, name: "Rug Pull",                      category: "malicious" },
-  { id:  7, name: "Tool Name Spoofing",            category: "malicious" },
-  { id:  8, name: "Tool Shadowing",                category: "malicious" },
-  { id: 14, name: "Unauthenticated Access",        category: "malicious" },
-  { id: 18, name: "Path Traversal",               category: "malicious" },
-  { id: 21, name: "Privilege Abuse",              category: "malicious" },
-  { id:  9, name: "Resource Content Poisoning",   category: "vuln"      },
-  { id: 11, name: "Prompt Injection",             category: "vuln"      },
-  { id: 12, name: "Command Injection",            category: "vuln"      },
-  { id: 13, name: "Remote Code Execution (RCE)",  category: "vuln"      },
-  { id: 16, name: "Token/Credential Theft",       category: "vuln"      },
-  { id: 23, name: "SQL Injection",                category: "vuln"      },
+  { id:  2, name: "Tool Poisoning (TPA)"          },
+  { id:  3, name: "Full Schema Poisoning (FSP)"   },
+  { id:  4, name: "Advanced Tool Poisoning (ATPA)"},
+  { id:  5, name: "Rug Pull"                      },
+  { id:  7, name: "Tool Name Spoofing"            },
+  { id:  8, name: "Tool Shadowing"                },
+  { id: 14, name: "Unauthenticated Access"        },
+  { id: 18, name: "Path Traversal"               },
+  { id: 21, name: "Privilege Abuse"              },
+  { id:  9, name: "Resource Content Poisoning"   },
+  { id: 11, name: "Prompt Injection"             },
+  { id: 12, name: "Command Injection"            },
+  { id: 13, name: "Remote Code Execution (RCE)"  },
+  { id: 16, name: "Token/Credential Theft"       },
+  { id: 23, name: "SQL Injection"                },
 ];
 const ALL_STAGE_IDS = ALL_STAGES.map(s => s.id);
 const STAGE_MAP = Object.fromEntries(ALL_STAGES.map(s => [s.id, s]));
-STAGE_MAP[1]  = { id:1,  name:"Info Collection",     category:"always" };
-STAGE_MAP[27] = { id:27, name:"Vulnerability Review", category:"always" };
+STAGE_MAP[1]  = { id:1,  name:"Info Collection"     };
+STAGE_MAP[27] = { id:27, name:"Vulnerability Review" };
 
 // ═══════════════════════════════════════════════════════════════
 //  APP STATE
@@ -632,9 +632,6 @@ function renderConfigMode() {
   const noUrl = !form.url;
   const scanDisabled = noProfile || noUrl || urlInvalid || noStages;
 
-  const malStages  = ALL_STAGES.filter(s => s.category === "malicious");
-  const vulnStages = ALL_STAGES.filter(s => s.category === "vuln");
-
   return `
   <div style="max-width:700px;margin:0 auto;">
     <div style="margin-bottom:20px;">
@@ -673,7 +670,7 @@ function renderConfigMode() {
         </div>
         ${noStages ? `<div style="color:var(--red);font-size:11px;margin-top:4px;padding:0 4px;">⚠ 至少需要选择一个阶段</div>` : ""}
 
-        ${form.stagesOpen ? renderStageCheckboxes(malStages, vulnStages, form.stage_ids) : ""}
+        ${form.stagesOpen ? renderStageCheckboxes(ALL_STAGES, form.stage_ids) : ""}
       </div>` : ""}
     </div>
 
@@ -773,7 +770,7 @@ function renderConfigMode() {
   </div>`;
 }
 
-function renderStageCheckboxes(malStages, vulnStages, selectedIds) {
+function renderStageCheckboxes(stages, selectedIds) {
   const selSet = new Set(selectedIds);
   const chk = (stage) => {
     const checked = selSet.has(stage.id);
@@ -791,31 +788,17 @@ function renderStageCheckboxes(malStages, vulnStages, selectedIds) {
       <div class="stage-locked" style="flex:1;">🔒 <span style="color:#93c5fd;">Vuln Review</span> <span style="font-size:10px;margin-left:auto;color:var(--text-muted);">始终执行</span></div>
     </div>
 
-    <!-- Malicious group -->
-    <div style="margin-bottom:10px;">
+    <!-- Flat stage list -->
+    <div style="margin-bottom:6px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-        <span style="font-size:11px;font-weight:600;color:#f9a8d4;">恶意行为检测 (${malStages.length})</span>
+        <span style="font-size:11px;font-weight:600;color:#9ca3af;">扫描阶段 (${stages.length})</span>
         <div style="display:flex;gap:6px;">
-          <button class="btn-icon" style="font-size:10px;padding:2px 8px;" onclick="toggleStageGroup('malicious',true)">全选</button>
-          <button class="btn-icon" style="font-size:10px;padding:2px 8px;" onclick="toggleStageGroup('malicious',false)">全不选</button>
+          <button class="btn-icon" style="font-size:10px;padding:2px 8px;" onclick="toggleAllStages(true)">全选</button>
+          <button class="btn-icon" style="font-size:10px;padding:2px 8px;" onclick="toggleAllStages(false)">全不选</button>
         </div>
       </div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px;">
-        ${malStages.map(s => chk(s)).join("")}
-      </div>
-    </div>
-
-    <!-- Vuln group -->
-    <div>
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-        <span style="font-size:11px;font-weight:600;color:#86efac;">漏洞扫描 (${vulnStages.length})</span>
-        <div style="display:flex;gap:6px;">
-          <button class="btn-icon" style="font-size:10px;padding:2px 8px;" onclick="toggleStageGroup('vuln',true)">全选</button>
-          <button class="btn-icon" style="font-size:10px;padding:2px 8px;" onclick="toggleStageGroup('vuln',false)">全不选</button>
-        </div>
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px;">
-        ${vulnStages.map(s => chk(s)).join("")}
+        ${stages.map(s => chk(s)).join("")}
       </div>
     </div>
   </div>`;
@@ -1122,14 +1105,8 @@ function toggleStage(stageId, checked) {
   render();
 }
 
-function toggleStageGroup(category, select) {
-  const groupIds = ALL_STAGES.filter(s => s.category === category).map(s => s.id);
-  const ids = AppState.configForm.stage_ids;
-  if (select) {
-    groupIds.forEach(id => { if (!ids.includes(id)) ids.push(id); });
-  } else {
-    AppState.configForm.stage_ids = ids.filter(id => !groupIds.includes(id));
-  }
+function toggleAllStages(select) {
+  AppState.configForm.stage_ids = select ? ALL_STAGES.map(s => s.id) : [];
   render();
 }
 
