@@ -89,7 +89,7 @@ class TaskIn(BaseModel):
     url:                 str
     stage_ids:           list[int] | None = None   # None = all 15 selectable stages
     prompt:              str = ""
-    language:            str = "zh"
+    language:            str = "en"
     oauth_client_id:     str | None = None
     oauth_client_secret: str | None = None
     oauth_token_url:     str | None = None
