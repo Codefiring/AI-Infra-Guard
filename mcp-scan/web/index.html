@@ -987,8 +987,14 @@ function renderFinalReport(target) {
         <span style="color:var(--text-muted);font-size:12px;margin-left:8px;">${open?"▲":"▼"}</span>
       </div>
       ${open ? `<div class="vuln-body">
-        <div style="margin-bottom:8px;"><strong style="color:var(--text-main);">Description: </strong>${v.description||""}</div>
-        <div><strong style="color:var(--text-main);">Suggestion: </strong>${v.suggestion||""}</div>
+        <div style="margin-bottom:10px;">
+          <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">Description</div>
+          <div class="markdown-body" style="font-size:12px;">${renderMarkdown(v.description||"")}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">Suggestion</div>
+          <div class="markdown-body" style="font-size:12px;">${renderMarkdown(v.suggestion||"")}</div>
+        </div>
       </div>` : ""}
     </div>`;
   }).join("");
