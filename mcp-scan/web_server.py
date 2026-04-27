@@ -472,6 +472,7 @@ async def abort_task(task_id: str):
             except Exception:
                 pass
         processes.pop(task_id, None)
+    db.stages_mark_aborted(task_id)
     db.task_set_done(task_id, "failed", "Aborted by user")
     push_event(task_id, "done", {"status": "failed"})
 

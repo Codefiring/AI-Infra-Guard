@@ -1044,7 +1044,7 @@ function renderStageCheckboxes(stages, selectedIds) {
 function renderScanMode(task) {
   const target = task.targets[0];
   if (!target) return `<div style="color:var(--text-muted);text-align:center;padding:40px;">No scan target</div>`;
-  const isRunning = task.status === "running";
+  const isRunning = task.status === "running" || task.status === "pending";
   const stages = target.stages || [];
   const completed = stages.filter(s => s.status === "completed").length;
   const total = stages.length;
@@ -1066,10 +1066,10 @@ function renderScanMode(task) {
                 <div style="font-size:11px;color:var(--text-muted);">${target.url}</div>
               </div>
             </div>
-            ${isRunning
-              ? `<button class="btn-danger" style="font-size:11px;padding:5px 10px;" onclick="abortTask('${task.id}')">Abort Scan</button>`
-              : `<button class="btn-secondary" style="font-size:11px;padding:5px 10px;" onclick="newScan()">New Scan</button>`
-            }
+            <div style="display:flex;gap:6px;">
+              ${isRunning ? `<button class="btn-danger" style="font-size:11px;padding:5px 10px;" onclick="abortTask('${task.id}')">Stop Scan</button>` : ""}
+              <button class="btn-secondary" style="font-size:11px;padding:5px 10px;" onclick="newScan()">New Scan</button>
+            </div>
           </div>
           <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
             <span style="font-size:11px;color:var(--text-muted);">${completed} / ${total} stages completed</span>
@@ -1327,7 +1327,7 @@ async function selectTask(id) {
   } catch(e) { /* backend unavailable */ }
   // Auto-connect SSE if task is running
   const task = AppState.tasks.find(t => t.id === id);
-  if (task && task.status === "running") connectToTask(id);
+  if (task && (task.status === "running" || task.status === "pending")) connectToTask(id);
 }
 
 function togglePanel(name) {
@@ -1447,12 +1447,21 @@ function connectToTask(taskId) {
 async function abortTask(id) {
   if (!confirm("Abort this scan task?")) return;
   if (AppState.eventSource) { AppState.eventSource.close(); AppState.eventSource = null; }
+  // Immediately patch local state for instant visual feedback
+  const task = AppState.tasks.find(t => t.id === id);
+  if (task) {
+    task.status = "failed";
+    task.targets?.forEach(target => {
+      target.stages?.forEach(s => {
+        if (s.status === "running" || s.status === "pending") s.status = "error";
+      });
+    });
+    render();
+  }
   try {
     await fetch(`/api/tasks/${id}`, { method:"DELETE" });
     await loadTasks();
   } catch(e) {
-    const task = AppState.tasks.find(t => t.id === id);
-    if (task) task.status = "failed";
     render();
   }
 }

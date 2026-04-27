@@ -389,6 +389,17 @@ def stage_update(task_target_id: str, stage_id: int, status: str, output: str = 
         )
 
 
+def stages_mark_aborted(task_id: str):
+    """Mark all pending/running stages as 'error' when a task is aborted."""
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE task_stages SET status='error', updated_at=? "
+            "WHERE task_target_id IN (SELECT id FROM task_targets WHERE task_id=?) "
+            "AND status IN ('pending', 'running')",
+            (now_iso(), task_id)
+        )
+
+
 def vulnerabilities_insert(target_id: str, vulns: list[dict]):
     with get_db() as conn:
         for v in vulns:
