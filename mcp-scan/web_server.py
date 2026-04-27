@@ -477,6 +477,22 @@ async def abort_task(task_id: str):
     push_event(task_id, "done", {"status": "failed"})
 
 
+@app.delete("/api/tasks/{task_id}/record", status_code=204)
+async def delete_task(task_id: str):
+    proc = processes.pop(task_id, None)
+    if proc:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            proc.wait(timeout=5)
+        except Exception:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except Exception:
+                pass
+    push_event(task_id, "done", {"status": "deleted"})
+    db.task_delete(task_id)
+
+
 @app.get("/api/tasks/{task_id}/stream")
 async def stream_task(task_id: str):
     task = db.task_get(task_id)

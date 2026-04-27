@@ -766,6 +766,8 @@ function renderSidebar() {
       <div style="display:flex;align-items:center;gap:8px;">
         <div class="dot ${dotClass}"></div>
         <span style="font-size:12px;font-weight:500;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${displayName}</span>
+        <button class="btn-icon" style="flex-shrink:0;opacity:0.45;font-size:11px;padding:2px 5px;"
+          onclick="event.stopPropagation();deleteTask('${t.id}')" title="Delete task">✕</button>
       </div>
     </div>`;
   }).join("");
@@ -1463,6 +1465,22 @@ async function abortTask(id) {
     await loadTasks();
   } catch(e) {
     render();
+  }
+}
+
+async function deleteTask(id) {
+  if (!confirm("Delete this task and all its data? This cannot be undone.")) return;
+  if (AppState.eventSource && AppState.selectedTaskId === id) {
+    AppState.eventSource.close();
+    AppState.eventSource = null;
+  }
+  AppState.tasks = AppState.tasks.filter(t => t.id !== id);
+  if (AppState.selectedTaskId === id) AppState.selectedTaskId = null;
+  render();
+  try {
+    await fetch(`/api/tasks/${id}/record`, { method: "DELETE" });
+  } catch(e) {
+    await loadTasks();
   }
 }
 

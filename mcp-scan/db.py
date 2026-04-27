@@ -400,6 +400,12 @@ def stages_mark_aborted(task_id: str):
         )
 
 
+def task_delete(task_id: str):
+    """Permanently delete a task and all its associated data (CASCADE)."""
+    with get_db() as conn:
+        conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
+
+
 def vulnerabilities_insert(target_id: str, vulns: list[dict]):
     with get_db() as conn:
         for v in vulns:
