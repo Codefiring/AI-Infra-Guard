@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import uuid
 from typing import List, Dict, Any, Optional
@@ -6,11 +7,85 @@ from typing import List, Dict, Any, Optional
 from agent.base_agent import BaseAgent
 from tools.dispatcher import ToolDispatcher
 from utils.prompt_manager import prompt_manager
-from utils.extract_vuln import VulnerabilityExtractor
 from utils.loging import logger
 from utils.aig_logger import mcpLogger
 from utils.project_analyzer import analyze_language, get_top_language, calc_mcp_score
 from utils.parse import parse_mcp_invocations
+
+
+def _parse_stage_reports(all_reports: list) -> tuple:
+    """Aggregate per-stage findings directly without an LLM review step.
+
+    Returns (vuln_results, summary_markdown) where vuln_results is a list of
+    dicts ready for DB insertion and summary_markdown is the Stage 27 display text.
+    """
+    _impact_order = {"critical": 3, "high": 2, "medium": 1, "low": 0}
+
+    def _map_impact(impact: str) -> str:
+        m = impact.strip().capitalize() if impact else ""
+        return m if m in ("Critical", "High", "Medium", "Low") else "Medium"
+
+    vuln_results = []
+    summary_rows = []
+
+    for stage_name, report, risk_type in all_reports:
+        ov = re.search(r'#\s*Overview\s*\n(.*?)(?=\n#|\Z)', report, re.DOTALL | re.IGNORECASE)
+        if not ov or "YES" not in ov.group(1).upper():
+            continue
+
+        threats = []
+        for tm in re.finditer(r'<threat>(.*?)</threat>', report, re.DOTALL):
+            tb = tm.group(1)
+
+            def _tag(tag, _tb=tb):
+                m = re.search(rf'<{tag}>(.*?)</{tag}>', _tb, re.DOTALL)
+                return m.group(1).strip() if m else ""
+
+            threats.append({
+                "tool_name": _tag("tool_name"),
+                "type":      _tag("type") or risk_type,
+                "impact":    _tag("impact"),
+            })
+
+        reasons_m = re.search(r'#\s*Reasons\s*\n(.*?)(?=\n#|\Z)', report, re.DOTALL | re.IGNORECASE)
+        summary_m = re.search(r'#\s*Summarization[:\s]*\n(.*?)(?=\n#|\Z)', report, re.DOTALL | re.IGNORECASE)
+        reasons_text = reasons_m.group(1).strip() if reasons_m else ""
+        summary_text = summary_m.group(1).strip() if summary_m else ""
+
+        max_level = "Medium"
+        if threats:
+            best = max(threats, key=lambda t: _impact_order.get(t["impact"].lower(), 1))
+            max_level = _map_impact(best["impact"])
+
+        tool_names = list(dict.fromkeys(t["tool_name"] for t in threats if t["tool_name"]))
+        title = stage_name + (f" — {', '.join(tool_names)}" if tool_names else "")
+
+        parts = []
+        if reasons_text:
+            parts.append(f"## Reasons\n{reasons_text}")
+        if summary_text:
+            parts.append(f"## Summary\n{summary_text}")
+        description = "\n\n".join(parts) or report
+
+        vuln_results.append({
+            "title":       title,
+            "description": description,
+            "risk_type":   risk_type,
+            "level":       max_level,
+            "suggestion":  "",
+        })
+        summary_rows.append(f"| {stage_name} | {risk_type} | {max_level} |")
+
+    if summary_rows:
+        summary_md = (
+            "# Vulnerability Review\n\n"
+            "| Stage | Risk Type | Level |\n|---|---|---|\n"
+            + "\n".join(summary_rows)
+        )
+    else:
+        summary_md = "# Vulnerability Review\n\nNo vulnerabilities found across all stages."
+
+    return vuln_results, summary_md
 
 
 class ScanStage:
@@ -394,48 +469,13 @@ MCP安全扫描共覆盖15类风险：恶意行为检测包括 MCP02 工具投�
                 use_oauth=use_oauth,
             )
             _stage_db(int(stage_id), "completed", report)
-            all_reports.append((stage_name, report))
+            all_reports.append((stage_name, report, risk_type))
 
-        # Stage 27: Vulnerability Review — consolidate all per-type reports
-        review_format = '''
-        必须满足以下xml格式，多个漏洞返回多个vuln标签
-        <vuln>
-          <title>title</title>
-          <desc>
-          <!-- Markdown格式漏洞描述 -->
-          ## 漏洞详情
-          **文件位置**:
-          **漏洞类型**:
-          **风险等级**:
-
-          ### 技术分析
-
-          ### 攻击路径
-
-          ### 影响评估
-          </desc>
-          <risk_type>Short identifier only, e.g. MCP01 / MCP05 / Name Confusion / CWE-78</risk_type>
-          <level>Level</level>
-          <suggestion>
-          ## 修复建议
-          </suggestion>
-        </vuln>
-        若无漏洞或漏洞为空,返回<empty>
-        '''.strip()
-        vuln_review_check = lambda x: '<vuln>' in x or '<empty>' in x
-        review_context = {name: report for name, report in all_reports}
+        # Stage 27: Vulnerability Review — aggregate per-stage findings directly (no LLM)
         _stage_db(27, "running")
-        vuln_review = await self.pipeline.execute_stage_dynamic(
-            ScanStage("27", "Vulnerability Review", "agents/dynamic/general_analyzing_prompt_template",
-                      output_format=review_format,
-                      output_check_fn=vuln_review_check, language=self.language),
-            prompt, review_context
-        )
+        vuln_results, vuln_review = _parse_stage_reports(all_reports)
         _stage_db(27, "completed", vuln_review)
 
-        # 提取与分析结果
-        extractor = VulnerabilityExtractor()
-        vuln_results = extractor.extract_vulnerabilities(vuln_review)
         safety_score = calc_mcp_score(vuln_results)
 
         result_meta.update({
