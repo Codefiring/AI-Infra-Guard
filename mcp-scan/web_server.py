@@ -87,6 +87,7 @@ async def startup():
 class TaskIn(BaseModel):
     llm_profile_id:      str
     url:                 str
+    name:                str = ""
     stage_ids:           list[int] | None = None   # None = all 15 selectable stages
     prompt:              str = ""
     language:            str = "en"
@@ -394,6 +395,7 @@ async def create_task(body: TaskIn):
     has_oauth = bool(body.oauth_client_id and body.oauth_client_secret and body.oauth_token_url)
     db.task_create({
         "id":               task_id,
+        "name":             body.name,
         "llm_profile_id":   body.llm_profile_id,
         "llm_profile_name": profile["name"],
         "llm_model":        profile["model"],

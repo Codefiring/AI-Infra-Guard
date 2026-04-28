@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS llm_profiles (
 
 CREATE TABLE IF NOT EXISTS tasks (
     id                  TEXT PRIMARY KEY,
+    name                TEXT NOT NULL DEFAULT '',
     status              TEXT NOT NULL DEFAULT 'pending',
     created_at          TEXT NOT NULL,
     completed_at        TEXT,
@@ -156,6 +157,11 @@ def init_db():
             conn.execute("ALTER TABLE vulnerabilities ADD COLUMN tool_name TEXT DEFAULT ''")
         except Exception:
             pass  # Column already exists
+        # Migrate existing DBs that predate the tasks.name column
+        try:
+            conn.execute("ALTER TABLE tasks ADD COLUMN name TEXT NOT NULL DEFAULT ''")
+        except Exception:
+            pass  # Column already exists
         conn.execute(
             "UPDATE tasks SET status='failed', error='Server restarted unexpectedly' "
             "WHERE status IN ('pending', 'running')"
@@ -224,7 +230,7 @@ def tasks_list(limit: int = 200) -> list[dict]:
     with get_db() as conn:
         rows = conn.execute(
             """
-            SELECT t.id, t.status, t.created_at, t.completed_at,
+            SELECT t.id, t.name, t.status, t.created_at, t.completed_at,
                    t.llm_profile_name, t.llm_model, t.prompt, t.language,
                    t.has_oauth, t.current_target_idx, t.error,
                    COUNT(tt.id) AS target_count
@@ -311,12 +317,12 @@ def task_create(data: dict) -> dict:
     """
     with get_db() as conn:
         conn.execute(
-            "INSERT INTO tasks (id, status, created_at, llm_profile_id, "
+            "INSERT INTO tasks (id, name, status, created_at, llm_profile_id, "
             "  llm_profile_name, llm_model, prompt, language, has_oauth) "
-            "VALUES (?, 'pending', ?, ?, ?, ?, ?, ?, ?)",
-            (data["id"], now_iso(), data["llm_profile_id"], data["llm_profile_name"],
-             data["llm_model"], data.get("prompt", ""), data.get("language", "zh"),
-             1 if data.get("has_oauth") else 0)
+            "VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)",
+            (data["id"], data.get("name", ""), now_iso(), data["llm_profile_id"],
+             data["llm_profile_name"], data["llm_model"], data.get("prompt", ""),
+             data.get("language", "zh"), 1 if data.get("has_oauth") else 0)
         )
         for target in data["targets"]:
             stage_ids_json = json.dumps(target["stage_ids"]) if target.get("stage_ids") is not None else None

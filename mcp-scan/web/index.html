@@ -444,6 +444,7 @@ const AppState = {
   taskSearchQuery: "",
   expandedVulns: new Set(),
   configForm: {
+    name: "",
     url: "",
     stage_ids: [...ALL_STAGE_IDS],
     stagesOpen: false,
@@ -466,6 +467,7 @@ const AppState = {
 //  DISPLAY NAME HELPER
 // ═══════════════════════════════════════════════════════════════
 function taskDisplayName(task) {
+  if (task.name) return task.name;
   const target = task.targets?.[0];
   if (!target) return task.id;
   try {
@@ -842,6 +844,13 @@ function renderConfigMode() {
       </div>
       ${AppState.panelOpen.targets ? `
       <div class="panel-content">
+        <!-- Task name input -->
+        <div style="margin-bottom:12px;">
+          <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px;">Task Name <span style="opacity:0.5;">(optional)</span></label>
+          <input type="text" value="${escapeHtml(form.name || '')}" placeholder="Leave blank to auto-generate"
+            oninput="AppState.configForm.name=this.value"
+            style="font-size:12px;padding:7px 10px;">
+        </div>
         <!-- URL input -->
         <div style="margin-bottom:12px;">
           <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px;">Target URL</label>
@@ -1306,7 +1315,7 @@ function newScan() {
   AppState.selectedTaskId = null;
   AppState.selectedStageId = null;
   AppState.configForm = {
-    url: "", stage_ids:[...ALL_STAGE_IDS], stagesOpen:false,
+    name: "", url: "", stage_ids:[...ALL_STAGE_IDS], stagesOpen:false,
     prompt:"", language:"en",
     oauth_client_id:"", oauth_client_secret:"", oauth_token_url:"", oauth_scope:"",
   };
@@ -1369,6 +1378,7 @@ async function startScan() {
   if (!AppState.selectedLlmProfileId) { alert("Please configure an LLM service first"); return; }
 
   const body = {
+    name: form.name || "",
     llm_profile_id: AppState.selectedLlmProfileId,
     url: form.url,
     stage_ids: form.stage_ids,
