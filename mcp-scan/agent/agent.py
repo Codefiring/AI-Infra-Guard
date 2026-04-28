@@ -58,7 +58,8 @@ def _parse_stage_reports(all_reports: list) -> tuple:
             max_level = _map_impact(best["impact"])
 
         tool_names = list(dict.fromkeys(t["tool_name"] for t in threats if t["tool_name"]))
-        title = stage_name + (f" — {', '.join(tool_names)}" if tool_names else "")
+        title = stage_name
+        tool_name_str = ", ".join(tool_names)
 
         parts = []
         if reasons_text:
@@ -69,6 +70,7 @@ def _parse_stage_reports(all_reports: list) -> tuple:
 
         vuln_results.append({
             "title":       title,
+            "tool_name":   tool_name_str,
             "description": description,
             "risk_type":   risk_type,
             "level":       max_level,

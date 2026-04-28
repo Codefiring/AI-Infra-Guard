@@ -91,6 +91,7 @@ CREATE TABLE IF NOT EXISTS vulnerabilities (
     risk_type       TEXT,
     level           TEXT,
     suggestion      TEXT,
+    tool_name       TEXT DEFAULT '',
     FOREIGN KEY (task_target_id) REFERENCES task_targets(id) ON DELETE CASCADE
 );
 
@@ -150,6 +151,11 @@ def init_db():
     """Create schema and mark interrupted tasks as failed."""
     with get_db() as conn:
         conn.executescript(SCHEMA_SQL)
+        # Migrate existing DBs that predate the tool_name column
+        try:
+            conn.execute("ALTER TABLE vulnerabilities ADD COLUMN tool_name TEXT DEFAULT ''")
+        except Exception:
+            pass  # Column already exists
         conn.execute(
             "UPDATE tasks SET status='failed', error='Server restarted unexpectedly' "
             "WHERE status IN ('pending', 'running')"
@@ -282,7 +288,7 @@ def task_get(task_id: str) -> dict | None:
             target["stages"] = [dict(s) for s in stages]
 
             vulns = conn.execute(
-                "SELECT id, title, description, risk_type, level, suggestion "
+                "SELECT id, title, description, risk_type, level, suggestion, tool_name "
                 "FROM vulnerabilities WHERE task_target_id=?",
                 (target["id"],)
             ).fetchall()
@@ -411,10 +417,11 @@ def vulnerabilities_insert(target_id: str, vulns: list[dict]):
         for v in vulns:
             conn.execute(
                 "INSERT OR IGNORE INTO vulnerabilities "
-                "(id, task_target_id, title, description, risk_type, level, suggestion) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "(id, task_target_id, title, description, risk_type, level, suggestion, tool_name) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (v["id"], target_id, v.get("title", ""),
-                 v.get("description"), v.get("risk_type"), v.get("level"), v.get("suggestion"))
+                 v.get("description"), v.get("risk_type"), v.get("level"),
+                 v.get("suggestion"), v.get("tool_name", ""))
             )
 
 
