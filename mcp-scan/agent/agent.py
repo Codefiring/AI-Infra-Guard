@@ -76,12 +76,12 @@ def _parse_stage_reports(all_reports: list) -> tuple:
             "level":       max_level,
             "suggestion":  "",
         })
-        summary_rows.append(f"| {stage_name} | {risk_type} | {max_level} |")
+        summary_rows.append(f"| {stage_name} | {tool_name_str or '—'} | {risk_type} | {max_level} |")
 
     if summary_rows:
         summary_md = (
             "# Vulnerability Review\n\n"
-            "| Stage | Risk Type | Level |\n|---|---|---|\n"
+            "| Stage | Interface | Risk Type | Level |\n|---|---|---|---|\n"
             + "\n".join(summary_rows)
         )
     else:
