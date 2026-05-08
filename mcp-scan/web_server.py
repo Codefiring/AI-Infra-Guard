@@ -537,6 +537,10 @@ async def stream_task(task_id: str):
 # Entry point
 # ─────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
+    import argparse
     import uvicorn
-    print(f"Starting mcp-scan Web Server on http://localhost:{PORT}")
-    uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info")
+    parser = argparse.ArgumentParser(description="mcp-scan Web Server")
+    parser.add_argument("--port", type=int, default=PORT, help=f"Port to listen on (default: {PORT})")
+    args = parser.parse_args()
+    print(f"Starting mcp-scan Web Server on http://localhost:{args.port}")
+    uvicorn.run(app, host="0.0.0.0", port=args.port, log_level="info")
