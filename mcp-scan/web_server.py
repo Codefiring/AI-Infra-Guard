@@ -43,21 +43,21 @@ PORT       = 7788
 
 # All 15 selectable stage IDs with their names (mirrors frontend ALL_STAGES)
 ALL_STAGES = [
-    (2,  "Tool Poisoning (TPA)"),
-    (3,  "Full Schema Poisoning (FSP)"),
-    (4,  "Advanced Tool Poisoning (ATPA)"),
-    (5,  "Rug Pull"),
-    (7,  "Tool Name Spoofing"),
-    (8,  "Tool Shadowing"),
-    (14, "Unauthenticated Access"),
-    (18, "Path Traversal"),
-    (21, "Privilege Abuse"),
-    (9,  "Resource Content Poisoning"),
-    (11, "Prompt Injection"),
-    (12, "Command Injection"),
-    (13, "Remote Code Execution (RCE)"),
-    (16, "Token/Credential Theft"),
-    (23, "SQL Injection"),
+    (2,  "MCP03 Tool Poisoning (TPA)"),
+    (3,  "MCP11 Full Schema Poisoning (FSP)"),
+    (4,  "MCP15 Advanced Tool Poisoning (ATPA)"),
+    (5,  "MCP14 Rug Pull"),
+    (7,  "MCP12 Tool Name Spoofing"),
+    (8,  "MCP17 Tool Shadowing"),
+    (14, "MCP05 Unauthenticated Access"),
+    (18, "MCP10 Path Traversal"),
+    (21, "MCP19 Privilege Abuse"),
+    (9,  "MCP18 Resource Content Poisoning"),
+    (11, "MCP01 Prompt Injection"),
+    (12, "MCP02 Command Injection"),
+    (13, "MCP04 Remote Code Execution (RCE)"),
+    (16, "MCP08 Token/Credential Theft"),
+    (23, "MCP21 SQL Injection"),
 ]
 STAGE_NAME_MAP = {sid: name for sid, name in ALL_STAGES}
 STAGE_NAME_MAP[1]  = "Info Collection"
