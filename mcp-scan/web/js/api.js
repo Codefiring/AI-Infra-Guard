@@ -56,7 +56,7 @@ function connectToTask(taskId) {
       if (!task) return;
       const target = task.targets[0];
       if (!target) return;
-      const stage = target.stages.find(s => s.stage_id === ev.stage_id);
+      const stage = (target.stages || []).find(s => s.stage_id === ev.stage_id);
       if (stage) { stage.status = ev.status; if (ev.output) stage.output = ev.output; }
       if (ev.status === "running" && AppState.selectedTaskId === taskId && AppState.selectedStageId === null) {
         AppState.selectedStageId = null;
