@@ -95,28 +95,29 @@ function renderResultsPanel(task, target) {
     return renderFinalReport(target);
   }
 
-  // Scanning in progress
+  // Scanning in progress — show live log viewer
   const completed = stageList.filter(s => s.status === "completed").length;
   const total = stageList.length;
   const runningStage = stageList.find(s => s.status === "running");
+  const logHtml = AppState.logLines.length
+    ? AppState.logLines.map(l => `<div class="log-line">${escapeHtml(l)}</div>`).join("")
+    : `<div style="color:var(--text-muted);text-align:center;padding-top:24px;font-family:sans-serif;">Waiting for logs…</div>`;
   return `
-  <div class="card" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;">
-    <div style="text-align:center;">
-      <div class="spinner" style="display:inline-block;margin-bottom:16px;">
-        <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-          <circle cx="24" cy="24" r="20" stroke="rgba(59,130,246,0.2)" stroke-width="3"/>
-          <path d="M24 4 A20 20 0 0 1 44 24" stroke="url(#gs)" stroke-width="3" stroke-linecap="round"/>
-          <defs><linearGradient id="gs" x1="0" y1="0" x2="48" y2="48"><stop offset="0%" stop-color="#3b82f6"/><stop offset="100%" stop-color="#34d399"/></linearGradient></defs>
-        </svg>
+  <div class="card" style="flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden;">
+    <div style="padding:10px 16px;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;align-items:center;justify-content:space-between;gap:12px;">
+      <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+        ${target.status==="failed"
+          ? `<span style="color:var(--red);font-size:12px;">✕</span><span style="font-size:12px;font-weight:600;color:var(--red);">Scan Failed</span>`
+          : runningStage
+            ? `<span class="dot dot-running" style="flex-shrink:0;"></span><span style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${runningStage.name}</span>`
+            : `<span style="font-size:12px;color:var(--text-muted);">Waiting to start…</span>`}
+        ${target.error ? `<span style="font-size:11px;color:var(--red);margin-left:4px;">${escapeHtml(target.error)}</span>` : ""}
       </div>
-      <div style="font-size:14px;font-weight:600;color:var(--text-main);margin-bottom:6px;">
-        ${target.status === "failed" ? "Scan Failed" : target.status === "pending" ? "Waiting to start..." : "Scan in progress..."}
-      </div>
-      ${runningStage ? `<div style="font-size:12px;color:var(--blue);">Running: ${runningStage.name}</div>` : ""}
-      ${target.error ? `<div style="font-size:12px;color:var(--red);margin-top:8px;">${target.error}</div>` : ""}
-      <div style="font-size:12px;color:var(--text-muted);margin-top:8px;">${completed} / ${total} stages completed</div>
+      <span style="font-size:11px;color:var(--text-muted);flex-shrink:0;">${completed} / ${total} stages</span>
     </div>
-    <div style="font-size:12px;color:var(--text-muted);">Click a completed stage on the left to view details</div>
+    <div id="log-viewer" style="flex:1;overflow-y:auto;padding:10px 14px;font-family:'Courier New',monospace;font-size:11px;line-height:1.6;color:#9ca3af;background:#0d0d12;">
+      ${logHtml}
+    </div>
   </div>`;
 }
 

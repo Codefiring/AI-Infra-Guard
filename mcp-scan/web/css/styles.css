@@ -289,6 +289,9 @@
   }
   .resize-handle-h:hover, .resize-handle-h.dragging { background: var(--blue); }
 
+  /* ── Log viewer ── */
+  .log-line { white-space: pre-wrap; word-break: break-all; }
+
   /* ── Score gauge colors ── */
   .score-high   { stroke: var(--green);  fill: var(--green);  }
   .score-medium { stroke: var(--amber);  fill: var(--amber);  }

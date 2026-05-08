@@ -34,9 +34,38 @@ async function startScan() {
   }
 }
 
+// ── Log polling ──
+function startLogPolling(taskId) {
+  stopLogPolling();
+  async function fetchLog() {
+    try {
+      const res = await fetch(`/api/tasks/${taskId}/log?tail=300`);
+      if (!res.ok) return;
+      const data = await res.json();
+      AppState.logLines = data.lines || [];
+      updateLogViewer();
+    } catch(e) {}
+  }
+  fetchLog();
+  AppState.logPollTimer = setInterval(fetchLog, 2000);
+}
+
+function stopLogPolling() {
+  if (AppState.logPollTimer) { clearInterval(AppState.logPollTimer); AppState.logPollTimer = null; }
+}
+
+function updateLogViewer() {
+  const el = document.getElementById("log-viewer");
+  if (!el) return;
+  const wasAtBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 40;
+  el.innerHTML = AppState.logLines.map(l => `<div class="log-line">${escapeHtml(l)}</div>`).join("");
+  if (wasAtBottom || el.scrollHeight === el.clientHeight) el.scrollTop = el.scrollHeight;
+}
+
 // ── SSE ──
 function connectToTask(taskId) {
   if (AppState.eventSource) { AppState.eventSource.close(); AppState.eventSource = null; }
+  startLogPolling(taskId);
   let retries = 0;
   function connect() {
     const es = new EventSource(`/api/tasks/${taskId}/stream`);
@@ -76,12 +105,14 @@ function connectToTask(taskId) {
       const ev = JSON.parse(e.data);
       const task = AppState.tasks.find(t => t.id === taskId);
       if (task) task.status = ev.status;
+      stopLogPolling();
       es.close(); AppState.eventSource = null;
       render();
     });
     es.onerror = () => {
       es.close();
       if (retries < 3) { retries++; setTimeout(connect, 3000); }
+      else stopLogPolling();
     };
   }
   connect();

@@ -56,4 +56,7 @@ const AppState = {
   eventSource: null,
   // Resizable panel widths
   layout: { sidebarWidth: 240, scanLeftPct: 40 },
+  // Live log viewer
+  logLines: [],
+  logPollTimer: null,
 };

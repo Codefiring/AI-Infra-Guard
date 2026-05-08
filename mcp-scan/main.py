@@ -159,7 +159,7 @@ def sanitize_url_for_filename(url: str, name: str = None) -> str:
         return sanitized
 
 
-def setup_target_logging(output_dir: Path, target_url: str, target_name: str = None):
+def setup_target_logging(output_dir: Path, target_url: str, target_name: str = None, task_id: str = None):
     """Setup logging for a specific target"""
     from loguru import logger as loguru_logger
 
@@ -174,7 +174,7 @@ def setup_target_logging(output_dir: Path, target_url: str, target_name: str = N
     )
 
     # Add target-specific file handler
-    filename = sanitize_url_for_filename(target_url, target_name)
+    filename = task_id if task_id else sanitize_url_for_filename(target_url, target_name)
     log_file = output_dir / f"{filename}.log"
     loguru_logger.add(
         str(log_file),
@@ -291,7 +291,8 @@ async def scan_single_target(target_url: str, args, llm, specialized_llms, outpu
     logger.info(f"{'='*60}\n")
 
     # Setup logging for this target
-    log_file = setup_target_logging(output_dir, target_url, target_name)
+    log_file = setup_target_logging(output_dir, target_url, target_name,
+                                    task_id=getattr(args, 'task_id', None))
     logger.info(f"Logging to: {log_file}")
 
     # Prepare prompt
@@ -483,7 +484,8 @@ async def main():
     if task_id_arg:
         try:
             from db import task_set_running, target_set_running as _target_set_running
-            task_set_running(task_id_arg, log_file=None)
+            _log_path = str(Path("logs") / f"{task_id_arg}.log")
+            task_set_running(task_id_arg, log_file=_log_path)
             if target_id_arg:
                 _target_set_running(target_id_arg)
         except Exception as e:

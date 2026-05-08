@@ -54,5 +54,6 @@ function render() {
   renderSidebar();
   renderMainPanel();
   renderLlmModal();
+  updateLogViewer();
 }
 

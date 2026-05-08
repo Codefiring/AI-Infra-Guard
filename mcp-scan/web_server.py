@@ -383,6 +383,26 @@ async def get_task(task_id: str):
     return task
 
 
+@app.get("/api/tasks/{task_id}/log")
+async def get_task_log(task_id: str, tail: int = 300):
+    task = db.task_get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    stored = task.get("log_file")
+    if stored:
+        log_path = Path(stored) if Path(stored).is_absolute() else SCRIPT_DIR / stored
+    else:
+        log_path = SCRIPT_DIR / "logs" / f"{task_id}.log"
+    if not log_path.exists():
+        return {"lines": [], "has_log": False}
+    try:
+        with open(log_path, "r", errors="replace") as f:
+            lines = f.readlines()
+        return {"lines": [l.rstrip("\n") for l in lines[-tail:]], "has_log": True}
+    except Exception:
+        return {"lines": [], "has_log": False}
+
+
 @app.post("/api/tasks", status_code=201)
 async def create_task(body: TaskIn):
     # Resolve LLM profile
