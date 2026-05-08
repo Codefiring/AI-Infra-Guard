@@ -12,10 +12,10 @@ function renderScanMode(task) {
 
   return `
   <div style="display:flex;flex-direction:column;height:100%;">
-    <div style="display:flex;gap:16px;flex:1;min-height:0;">
+    <div style="display:flex;flex:1;min-height:0;">
 
-      <!-- Left: Stage progress (40%) -->
-      <div style="width:40%;flex-shrink:0;display:flex;flex-direction:column;gap:12px;">
+      <!-- Left: Stage progress -->
+      <div id="scan-left" style="width:${AppState.layout.scanLeftPct}%;flex-shrink:0;display:flex;flex-direction:column;gap:12px;">
         <!-- Header card -->
         <div class="card" style="padding:14px 16px;">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
@@ -59,7 +59,9 @@ function renderScanMode(task) {
         </div>
       </div>
 
-      <!-- Right: Results (60%) -->
+      <div class="resize-handle-h" onmousedown="startScanResize(event)"></div>
+
+      <!-- Right: Results -->
       <div style="flex:1;display:flex;flex-direction:column;gap:12px;min-width:0;">
         ${renderResultsPanel(task, target)}
       </div>

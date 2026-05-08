@@ -54,4 +54,6 @@ const AppState = {
   llmFormOpen: false,
   // SSE
   eventSource: null,
+  // Resizable panel widths
+  layout: { sidebarWidth: 240, scanLeftPct: 40 },
 };

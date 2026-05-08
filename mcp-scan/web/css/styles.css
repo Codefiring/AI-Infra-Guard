@@ -281,6 +281,14 @@
   /* ── Divider ── */
   .divider { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
 
+  /* ── Resize handles ── */
+  .resize-handle-h {
+    width: 4px; flex-shrink: 0; cursor: col-resize;
+    background: var(--border);
+    transition: background 0.15s;
+  }
+  .resize-handle-h:hover, .resize-handle-h.dragging { background: var(--blue); }
+
   /* ── Score gauge colors ── */
   .score-high   { stroke: var(--green);  fill: var(--green);  }
   .score-medium { stroke: var(--amber);  fill: var(--amber);  }

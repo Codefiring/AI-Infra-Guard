@@ -2,6 +2,7 @@
 //  SIDEBAR
 // ═══════════════════════════════════════════════════════════════
 function renderSidebar() {
+  document.getElementById("sidebar").style.width = AppState.layout.sidebarWidth + "px";
   const filtered = AppState.tasks.filter(t => {
     const q = AppState.taskSearchQuery.toLowerCase();
     if (!q) return true;

@@ -106,6 +106,7 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // Try to load real data from backend (will silently fail if not running)
   await Promise.all([loadTasks(), loadLlmProfiles(), loadSavedConfigs()]);
+  initResizeHandlers();
 
   // Auto-connect SSE for any running task
   const running = AppState.tasks.find(t => t.status === "running");
