@@ -147,12 +147,10 @@ function renderConfigMode() {
       `}
     </div>
 
-    <!-- Export / Import / Start -->
+    <!-- Save / Start -->
     <div class="card" style="padding:16px;">
       <div style="display:flex;gap:10px;margin-bottom:12px;">
         <button class="btn-secondary" style="flex:1;" onclick="saveConfig()">💾 Save Config</button>
-        <button class="btn-secondary" style="flex:1;" onclick="exportConfig()">↓ Export</button>
-        <button class="btn-secondary" style="flex:1;" onclick="document.getElementById('import-input').click()">↑ Import</button>
       </div>
       <button class="btn-primary" onclick="startScan()" ${scanDisabled?"disabled":""}>
         ${noProfile ? "Configure LLM service first" : "Start Scan"}
