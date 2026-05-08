@@ -140,6 +140,7 @@ async function loadSavedConfigs() {
     const r = await fetch("/api/configs");
     AppState.savedConfigs = r.ok ? await r.json() : [];
   } catch(e) { AppState.savedConfigs = []; }
+  render();
 }
 
 async function saveConfig() {
