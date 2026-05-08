@@ -110,9 +110,9 @@ class TaskIn(BaseModel):
     def validate_stages(cls, v):
         if v is None:
             return v
-        bad = [i for i in v if i < 2 or i > 26]
+        bad = [i for i in v if i not in ALL_STAGE_IDS]
         if bad:
-            raise ValueError(f"Stage IDs must be between 2 and 26: {bad}")
+            raise ValueError(f"Invalid stage IDs (not in selectable list): {bad}")
         return v
 
 
@@ -142,7 +142,8 @@ class ConfigIn(BaseModel):
 # ─────────────────────────────────────────────────────────────────────────────
 def build_stage_rows(stage_ids: list[int] | None) -> list[dict]:
     """Return ordered list of stage dicts for insertion into task_stages."""
-    ids = sorted(stage_ids) if stage_ids else sorted(ALL_STAGE_IDS)
+    valid = set(ALL_STAGE_IDS)
+    ids = sorted(i for i in (stage_ids or ALL_STAGE_IDS) if i in valid)
     rows = [{"id": str(uuid.uuid4())[:8], "stage_id": 0, "name": "Info Collection"}]
     for sid in ids:
         rows.append({"id": str(uuid.uuid4())[:8], "stage_id": sid,

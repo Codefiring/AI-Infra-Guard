@@ -199,10 +199,13 @@ async function saveConfig() {
 }
 
 function applyConfig(cfg) {
-  const stageIds = cfg.stage_ids ? JSON.parse(cfg.stage_ids) : [...ALL_STAGE_IDS];
+  const raw = cfg.stage_ids ? JSON.parse(cfg.stage_ids) : ALL_STAGE_IDS;
+  const validSet = new Set(ALL_STAGE_IDS);
+  const stageIds = raw.filter(id => validSet.has(id));
+  const finalIds = stageIds.length > 0 ? stageIds : [...ALL_STAGE_IDS];
   AppState.configForm = {
     url: cfg.url || "",
-    stage_ids: stageIds,
+    stage_ids: finalIds,
     stagesOpen: false,
     prompt: cfg.prompt || "",
     language: cfg.language || "zh",
