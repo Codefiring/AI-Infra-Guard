@@ -482,6 +482,9 @@ async def main():
 
     # Mark task/target as running in DB (web server created the rows)
     if task_id_arg:
+        # Reconfigure loguru to write to {task_id}.log, replacing the
+        # timestamp-based handler added at import time in utils/loging.py
+        setup_target_logging(Path("logs"), args.server_url or "", task_id=task_id_arg)
         try:
             from db import task_set_running, target_set_running as _target_set_running
             _log_path = str(Path("logs") / f"{task_id_arg}.log")
