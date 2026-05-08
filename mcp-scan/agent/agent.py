@@ -385,14 +385,14 @@ MCP安全扫描共覆盖15类风险：恶意行为检测包括 MCP02 工具投�
 
         # Stage 1: Info Collection
         info_ret_format = "生成一份详细的MCP(model context protocol)信息收集报告，使用Markdown格式。报告需基于输入数据如实总结，确保读者（对项目一无所知）能快速理解项目全貌。"
-        _stage_db(1, "running")
+        _stage_db(0, "running")
         info_collection = await self.pipeline.execute_stage_dynamic(
-            ScanStage("1", "Info Collection", "agents/dynamic/project_summary", output_format=info_ret_format,
+            ScanStage("0", "Info Collection", "agents/dynamic/project_summary", output_format=info_ret_format,
                       language=self.language),
             prompt=prompt
         )
         result_meta["readme"] = info_collection
-        _stage_db(1, "completed", info_collection)
+        _stage_db(0, "completed", info_collection)
 
         # Per-type scan output format — risk_type is injected per stage to prevent LLM hallucination
         def make_vuln_format(risk_type: str) -> str:
@@ -423,31 +423,31 @@ MCP安全扫描共覆盖15类风险：恶意行为检测包括 MCP02 工具投�
         # Stage 14 intentionally disables OAuth to test whether the server
         # rejects unauthenticated requests (401 = no vulnerability; success = vulnerability).
         all_stages = [
-            ("11", "Prompt Injection",                      "agents/dynamic/vuln/prompt_injection",       True,  "MCP01"),  # rank 1
-            ("12", "Command Injection",                     "agents/dynamic/vuln/command_injection",      True,  "MCP02"),  # rank 2
-            ("2",  "Tool Poisoning (TPA)",                  "agents/dynamic/malicious/tpa",               True,  "MCP03"),  # rank 3
-            ("13", "Remote Code Execution (RCE)",           "agents/dynamic/vuln/rce",                    True,  "MCP04"),  # rank 4
-            ("14", "Unauthenticated Access",                "agents/dynamic/vuln/unauth_access",          False, "MCP05"),  # rank 5
-            ("15", "Confused Deputy (OAuth Proxy)",         "agents/dynamic/vuln/confused_deputy",        True,  "MCP06"),  # rank 6
-            ("6",  "MCP Configuration Poisoning",           "agents/dynamic/malicious/config_poisoning",  True,  "MCP07"),  # rank 7
-            ("16", "Token/Credential Theft",                "agents/dynamic/vuln/credential_theft",       True,  "MCP08"),  # rank 8
-            ("17", "Token Passthrough",                     "agents/dynamic/vuln/token_passthrough",      True,  "MCP09"),  # rank 9
-            ("18", "Path Traversal",                        "agents/dynamic/vuln/path_traversal",         True,  "MCP10"),  # rank 10
-            ("3",  "Full Schema Poisoning (FSP)",            "agents/dynamic/malicious/fsp",               True,  "MCP11"),  # rank 11
-            ("7",  "Tool Name Spoofing",                    "agents/dynamic/malicious/name_spoofing",     True,  "MCP12"),  # rank 12
-            ("19", "Localhost Bypass (NeighborJack)",       "agents/dynamic/vuln/localhost_bypass",       True,  "MCP13"),  # rank 13
-            ("5",  "Rug Pull Attack",                       "agents/dynamic/malicious/rug_pull",          True,  "MCP14"),  # rank 14
-            ("4",  "Advanced Tool Poisoning (ATPA)",        "agents/dynamic/malicious/atpa",              True,  "MCP15"),  # rank 15
-            ("20", "Session Management Flaws",              "agents/dynamic/vuln/session_management",     True,  "MCP16"),  # rank 16
-            ("8",  "Tool Shadowing",                        "agents/dynamic/malicious/tool_shadowing",    True,  "MCP17"),  # rank 17
-            ("9",  "Resource Content Poisoning",            "agents/dynamic/malicious/resource_poisoning",True,  "MCP18"),  # rank 18
-            ("21", "Privilege Abuse/Overbroad Permissions", "agents/dynamic/vuln/privilege_abuse",        True,  "MCP19"),  # rank 19
-            ("22", "Cross-Repository Data Theft",           "agents/dynamic/vuln/cross_repo_theft",       True,  "MCP20"),  # rank 20
-            ("23", "SQL Injection",                         "agents/dynamic/vuln/sql_injection",          True,  "MCP21"),  # rank 21
-            ("24", "Context Bleeding",                      "agents/dynamic/vuln/context_bleeding",       True,  "MCP22"),  # rank 22
-            ("25", "Configuration File Exposure",           "agents/dynamic/vuln/config_exposure",        True,  "MCP23"),  # rank 23
-            ("10", "MCP Preference Manipulation (MPMA)",    "agents/dynamic/malicious/mpma",              True,  "MCP24"),  # rank 24
-            ("26", "Cross-Tenant Data Exposure",            "agents/dynamic/vuln/cross_tenant_exposure",  True,  "MCP25"),  # rank 25
+            ("1",  "Prompt Injection",                      "agents/dynamic/vuln/prompt_injection",       True,  "MCP01"),  # rank 1
+            ("2",  "Command Injection",                     "agents/dynamic/vuln/command_injection",      True,  "MCP02"),  # rank 2
+            ("3",  "Tool Poisoning (TPA)",                  "agents/dynamic/malicious/tpa",               True,  "MCP03"),  # rank 3
+            ("4",  "Remote Code Execution (RCE)",           "agents/dynamic/vuln/rce",                    True,  "MCP04"),  # rank 4
+            ("5",  "Unauthenticated Access",                "agents/dynamic/vuln/unauth_access",          False, "MCP05"),  # rank 5
+            ("6",  "Confused Deputy (OAuth Proxy)",         "agents/dynamic/vuln/confused_deputy",        True,  "MCP06"),  # rank 6
+            ("7",  "MCP Configuration Poisoning",           "agents/dynamic/malicious/config_poisoning",  True,  "MCP07"),  # rank 7
+            ("8",  "Token/Credential Theft",                "agents/dynamic/vuln/credential_theft",       True,  "MCP08"),  # rank 8
+            ("9",  "Token Passthrough",                     "agents/dynamic/vuln/token_passthrough",      True,  "MCP09"),  # rank 9
+            ("10", "Path Traversal",                        "agents/dynamic/vuln/path_traversal",         True,  "MCP10"),  # rank 10
+            ("11", "Full Schema Poisoning (FSP)",            "agents/dynamic/malicious/fsp",               True,  "MCP11"),  # rank 11
+            ("12", "Tool Name Spoofing",                    "agents/dynamic/malicious/name_spoofing",     True,  "MCP12"),  # rank 12
+            ("13", "Localhost Bypass (NeighborJack)",       "agents/dynamic/vuln/localhost_bypass",       True,  "MCP13"),  # rank 13
+            ("14", "Rug Pull Attack",                       "agents/dynamic/malicious/rug_pull",          True,  "MCP14"),  # rank 14
+            ("15", "Advanced Tool Poisoning (ATPA)",        "agents/dynamic/malicious/atpa",              True,  "MCP15"),  # rank 15
+            ("16", "Session Management Flaws",              "agents/dynamic/vuln/session_management",     True,  "MCP16"),  # rank 16
+            ("17", "Tool Shadowing",                        "agents/dynamic/malicious/tool_shadowing",    True,  "MCP17"),  # rank 17
+            ("18", "Resource Content Poisoning",            "agents/dynamic/malicious/resource_poisoning",True,  "MCP18"),  # rank 18
+            ("19", "Privilege Abuse/Overbroad Permissions", "agents/dynamic/vuln/privilege_abuse",        True,  "MCP19"),  # rank 19
+            ("20", "Cross-Repository Data Theft",           "agents/dynamic/vuln/cross_repo_theft",       True,  "MCP20"),  # rank 20
+            ("21", "SQL Injection",                         "agents/dynamic/vuln/sql_injection",          True,  "MCP21"),  # rank 21
+            ("22", "Context Bleeding",                      "agents/dynamic/vuln/context_bleeding",       True,  "MCP22"),  # rank 22
+            ("23", "Configuration File Exposure",           "agents/dynamic/vuln/config_exposure",        True,  "MCP23"),  # rank 23
+            ("24", "MCP Preference Manipulation (MPMA)",    "agents/dynamic/malicious/mpma",              True,  "MCP24"),  # rank 24
+            ("25", "Cross-Tenant Data Exposure",            "agents/dynamic/vuln/cross_tenant_exposure",  True,  "MCP25"),  # rank 25
         ]
 
         # Filter stages when caller specifies a subset
@@ -467,10 +467,10 @@ MCP安全扫描共覆盖15类风险：恶意行为检测包括 MCP02 工具投�
             _stage_db(int(stage_id), "completed", report)
             all_reports.append((stage_name, report, risk_type))
 
-        # Stage 27: Vulnerability Review — aggregate per-stage findings directly (no LLM)
-        _stage_db(27, "running")
+        # Stage 26: Vulnerability Review — aggregate per-stage findings directly (no LLM)
+        _stage_db(26, "running")
         vuln_results, vuln_review = _parse_stage_reports(all_reports)
-        _stage_db(27, "completed", vuln_review)
+        _stage_db(26, "completed", vuln_review)
 
         safety_score = calc_mcp_score(vuln_results)
 

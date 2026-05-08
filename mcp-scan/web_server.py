@@ -43,25 +43,25 @@ PORT       = 7788
 
 # All 15 selectable stage IDs with their names (mirrors frontend ALL_STAGES)
 ALL_STAGES = [
-    (11, "MCP01 Prompt Injection"),
-    (12, "MCP02 Command Injection"),
-    (2,  "MCP03 Tool Poisoning (TPA)"),
-    (13, "MCP04 Remote Code Execution (RCE)"),
-    (14, "MCP05 Unauthenticated Access"),
-    (16, "MCP08 Token/Credential Theft"),
-    (18, "MCP10 Path Traversal"),
-    (3,  "MCP11 Full Schema Poisoning (FSP)"),
-    (7,  "MCP12 Tool Name Spoofing"),
-    (5,  "MCP14 Rug Pull"),
-    (4,  "MCP15 Advanced Tool Poisoning (ATPA)"),
-    (8,  "MCP17 Tool Shadowing"),
-    (9,  "MCP18 Resource Content Poisoning"),
-    (21, "MCP19 Privilege Abuse"),
-    (23, "MCP21 SQL Injection"),
+    (1,  "MCP01 Prompt Injection"),
+    (2,  "MCP02 Command Injection"),
+    (3,  "MCP03 Tool Poisoning (TPA)"),
+    (4,  "MCP04 Remote Code Execution (RCE)"),
+    (5,  "MCP05 Unauthenticated Access"),
+    (8,  "MCP08 Token/Credential Theft"),
+    (10, "MCP10 Path Traversal"),
+    (11, "MCP11 Full Schema Poisoning (FSP)"),
+    (12, "MCP12 Tool Name Spoofing"),
+    (14, "MCP14 Rug Pull"),
+    (15, "MCP15 Advanced Tool Poisoning (ATPA)"),
+    (17, "MCP17 Tool Shadowing"),
+    (18, "MCP18 Resource Content Poisoning"),
+    (19, "MCP19 Privilege Abuse"),
+    (21, "MCP21 SQL Injection"),
 ]
 STAGE_NAME_MAP = {sid: name for sid, name in ALL_STAGES}
-STAGE_NAME_MAP[1]  = "Info Collection"
-STAGE_NAME_MAP[27] = "Vulnerability Review"
+STAGE_NAME_MAP[0]  = "Info Collection"
+STAGE_NAME_MAP[26] = "Vulnerability Review"
 ALL_STAGE_IDS = [sid for sid, _ in ALL_STAGES]
 
 # In-memory only (never persisted)
@@ -143,11 +143,11 @@ class ConfigIn(BaseModel):
 def build_stage_rows(stage_ids: list[int] | None) -> list[dict]:
     """Return ordered list of stage dicts for insertion into task_stages."""
     ids = sorted(stage_ids) if stage_ids else sorted(ALL_STAGE_IDS)
-    rows = [{"id": str(uuid.uuid4())[:8], "stage_id": 1, "name": "Info Collection"}]
+    rows = [{"id": str(uuid.uuid4())[:8], "stage_id": 0, "name": "Info Collection"}]
     for sid in ids:
         rows.append({"id": str(uuid.uuid4())[:8], "stage_id": sid,
                      "name": STAGE_NAME_MAP.get(sid, f"Stage {sid}")})
-    rows.append({"id": str(uuid.uuid4())[:8], "stage_id": 27, "name": "Vulnerability Review"})
+    rows.append({"id": str(uuid.uuid4())[:8], "stage_id": 26, "name": "Vulnerability Review"})
     return rows
 
 
