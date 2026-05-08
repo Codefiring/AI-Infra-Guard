@@ -423,31 +423,21 @@ MCP安全扫描共覆盖15类风险：恶意行为检测包括 MCP02 工具投�
         # Stage 14 intentionally disables OAuth to test whether the server
         # rejects unauthenticated requests (401 = no vulnerability; success = vulnerability).
         all_stages = [
-            ("1",  "Prompt Injection",                      "agents/dynamic/vuln/prompt_injection",       True,  "MCP01"),  # rank 1
-            ("2",  "Command Injection",                     "agents/dynamic/vuln/command_injection",      True,  "MCP02"),  # rank 2
-            ("3",  "Tool Poisoning (TPA)",                  "agents/dynamic/malicious/tpa",               True,  "MCP03"),  # rank 3
-            ("4",  "Remote Code Execution (RCE)",           "agents/dynamic/vuln/rce",                    True,  "MCP04"),  # rank 4
-            ("5",  "Unauthenticated Access",                "agents/dynamic/vuln/unauth_access",          False, "MCP05"),  # rank 5
-            ("6",  "Confused Deputy (OAuth Proxy)",         "agents/dynamic/vuln/confused_deputy",        True,  "MCP06"),  # rank 6
-            ("7",  "MCP Configuration Poisoning",           "agents/dynamic/malicious/config_poisoning",  True,  "MCP07"),  # rank 7
-            ("8",  "Token/Credential Theft",                "agents/dynamic/vuln/credential_theft",       True,  "MCP08"),  # rank 8
-            ("9",  "Token Passthrough",                     "agents/dynamic/vuln/token_passthrough",      True,  "MCP09"),  # rank 9
-            ("10", "Path Traversal",                        "agents/dynamic/vuln/path_traversal",         True,  "MCP10"),  # rank 10
-            ("11", "Full Schema Poisoning (FSP)",            "agents/dynamic/malicious/fsp",               True,  "MCP11"),  # rank 11
-            ("12", "Tool Name Spoofing",                    "agents/dynamic/malicious/name_spoofing",     True,  "MCP12"),  # rank 12
-            ("13", "Localhost Bypass (NeighborJack)",       "agents/dynamic/vuln/localhost_bypass",       True,  "MCP13"),  # rank 13
-            ("14", "Rug Pull Attack",                       "agents/dynamic/malicious/rug_pull",          True,  "MCP14"),  # rank 14
-            ("15", "Advanced Tool Poisoning (ATPA)",        "agents/dynamic/malicious/atpa",              True,  "MCP15"),  # rank 15
-            ("16", "Session Management Flaws",              "agents/dynamic/vuln/session_management",     True,  "MCP16"),  # rank 16
-            ("17", "Tool Shadowing",                        "agents/dynamic/malicious/tool_shadowing",    True,  "MCP17"),  # rank 17
-            ("18", "Resource Content Poisoning",            "agents/dynamic/malicious/resource_poisoning",True,  "MCP18"),  # rank 18
-            ("19", "Privilege Abuse/Overbroad Permissions", "agents/dynamic/vuln/privilege_abuse",        True,  "MCP19"),  # rank 19
-            ("20", "Cross-Repository Data Theft",           "agents/dynamic/vuln/cross_repo_theft",       True,  "MCP20"),  # rank 20
-            ("21", "SQL Injection",                         "agents/dynamic/vuln/sql_injection",          True,  "MCP21"),  # rank 21
-            ("22", "Context Bleeding",                      "agents/dynamic/vuln/context_bleeding",       True,  "MCP22"),  # rank 22
-            ("23", "Configuration File Exposure",           "agents/dynamic/vuln/config_exposure",        True,  "MCP23"),  # rank 23
-            ("24", "MCP Preference Manipulation (MPMA)",    "agents/dynamic/malicious/mpma",              True,  "MCP24"),  # rank 24
-            ("25", "Cross-Tenant Data Exposure",            "agents/dynamic/vuln/cross_tenant_exposure",  True,  "MCP25"),  # rank 25
+            ("1",  "Prompt Injection",                      "agents/dynamic/stages/mcp01_prompt_injection",  True,  "MCP01"),  # rank 1
+            ("2",  "Command Injection",                     "agents/dynamic/stages/mcp02_command_injection", True,  "MCP02"),  # rank 2
+            ("3",  "Tool Poisoning (TPA)",                  "agents/dynamic/stages/mcp03_tpa",               True,  "MCP03"),  # rank 3
+            ("4",  "Remote Code Execution (RCE)",           "agents/dynamic/stages/mcp04_rce",               True,  "MCP04"),  # rank 4
+            ("5",  "Unauthenticated Access",                "agents/dynamic/stages/mcp05_unauth_access",     False, "MCP05"),  # rank 5
+            ("8",  "Token/Credential Theft",                "agents/dynamic/stages/mcp08_credential_theft",  True,  "MCP08"),  # rank 8
+            ("10", "Path Traversal",                        "agents/dynamic/stages/mcp10_path_traversal",    True,  "MCP10"),  # rank 10
+            ("11", "Full Schema Poisoning (FSP)",            "agents/dynamic/stages/mcp11_fsp",               True,  "MCP11"),  # rank 11
+            ("12", "Tool Name Spoofing",                    "agents/dynamic/stages/mcp12_name_spoofing",     True,  "MCP12"),  # rank 12
+            ("14", "Rug Pull Attack",                       "agents/dynamic/stages/mcp14_rug_pull",          True,  "MCP14"),  # rank 14
+            ("15", "Advanced Tool Poisoning (ATPA)",        "agents/dynamic/stages/mcp15_atpa",              True,  "MCP15"),  # rank 15
+            ("17", "Tool Shadowing",                        "agents/dynamic/stages/mcp17_tool_shadowing",    True,  "MCP17"),  # rank 17
+            ("18", "Resource Content Poisoning",            "agents/dynamic/stages/mcp18_resource_poisoning",True,  "MCP18"),  # rank 18
+            ("19", "Privilege Abuse/Overbroad Permissions", "agents/dynamic/stages/mcp19_privilege_abuse",   True,  "MCP19"),  # rank 19
+            ("21", "SQL Injection",                         "agents/dynamic/stages/mcp21_sql_injection",     True,  "MCP21"),  # rank 21
         ]
 
         # Filter stages when caller specifies a subset
