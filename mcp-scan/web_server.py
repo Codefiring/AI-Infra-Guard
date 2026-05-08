@@ -29,6 +29,7 @@ from typing import AsyncGenerator
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
 
 import db
@@ -72,6 +73,7 @@ event_loop: asyncio.AbstractEventLoop | None = None
 # App
 # ─────────────────────────────────────────────────────────────────────────────
 app = FastAPI(title="mcp-scan Web Server", version="2.0.0")
+app.mount("/web", StaticFiles(directory=WEB_DIR), name="web_static")
 
 
 @app.on_event("startup")
@@ -429,7 +431,6 @@ async def create_task(body: TaskIn):
 def _launch_subprocess(body: TaskIn, profile: dict, task_id: str, target_id: str) -> subprocess.Popen:
     """Build the subprocess command and launch it."""
     cmd = [
-        "conda", "run", "-n", "AI-Infra-Guard", "--no-capture-output",
         "python", str(SCRIPT_DIR / "main.py"),
         "--server_url", body.url,
         "-k", profile["api_key"],
