@@ -464,8 +464,10 @@ MCP安全扫描共覆盖15类风险：恶意行为检测包括 MCP02 工具投�
 
         safety_score = calc_mcp_score(vuln_results)
 
+        full_report = vuln_review + "\n\n---\n\n# Information Collection\n\n" + info_collection
+
         result_meta.update({
-            "readme": info_collection,
+            "readme": full_report,
             "score": safety_score,
             "end_time": time.time(),
             "results": vuln_results
@@ -486,7 +488,7 @@ MCP安全扫描共覆盖15类风险：恶意行为检测包括 MCP02 工具投�
                     for v in vuln_results
                 ]
                 _db_mod.vulnerabilities_insert(task_target_id, vuln_rows)
-                _db_mod.target_set_done(task_target_id, safety_score, info_collection)
+                _db_mod.target_set_done(task_target_id, safety_score, full_report)
             except Exception:
                 pass
 
