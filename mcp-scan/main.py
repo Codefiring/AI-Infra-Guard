@@ -438,9 +438,9 @@ async def main():
     selected_ids = None
     if getattr(args, "stages", None):
         selected_ids = [int(s.strip()) for s in args.stages.split(",") if s.strip().isdigit()]
-        invalid = [s for s in selected_ids if s < 2 or s > 26]
+        invalid = [s for s in selected_ids if s < 1 or s > 26]
         if invalid:
-            logger.error(f"Invalid stage IDs (must be 2-26): {invalid}")
+            logger.error(f"Invalid stage IDs (must be 1-26): {invalid}")
             sys.exit(1)
         logger.info(f"Stage filter: {sorted(selected_ids)}")
 
