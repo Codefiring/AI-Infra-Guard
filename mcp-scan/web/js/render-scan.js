@@ -122,11 +122,6 @@ function renderResultsPanel(task, target) {
 }
 
 function renderFinalReport(target) {
-  const sc = target.score;
-  const clr = scoreColor(sc);
-  const circumference = 2 * Math.PI * 15.9;
-  const dash = (sc / 100) * circumference;
-
   const vulns = target.vulnerabilities || [];
   const vulnRows = vulns.map((v,i) => {
     const open = AppState.expandedVulns.has(v.id);
@@ -153,32 +148,6 @@ function renderFinalReport(target) {
   }).join("");
 
   return `
-  <!-- Score header -->
-  <div class="card" style="padding:16px;flex-shrink:0;">
-    <div style="display:flex;align-items:center;gap:20px;">
-      <svg viewBox="0 0 36 36" style="width:80px;height:80px;flex-shrink:0;">
-        <circle cx="18" cy="18" r="15.9" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="2.5"/>
-        <circle cx="18" cy="18" r="15.9" fill="none"
-          stroke="${clr}" stroke-width="2.5"
-          stroke-dasharray="${(sc/100)*100} ${100-sc}"
-          stroke-linecap="round"
-          transform="rotate(-90 18 18)"
-          style="transition:stroke-dasharray 0.8s ease;"/>
-        <text x="18" y="21" text-anchor="middle" font-size="9" fill="${clr}" font-weight="700">${sc}</text>
-      </svg>
-      <div style="flex:1;">
-        <div style="font-size:13px;color:var(--text-muted);margin-bottom:4px;">Security Score</div>
-        <div style="font-size:24px;font-weight:700;color:${clr};">${sc} <span style="font-size:14px;font-weight:400;">/ 100</span></div>
-        <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">
-          Found ${vulns.length} issues ·
-          High ${vulns.filter(v=>v.level&&(v.level.toLowerCase().includes("high")||v.level.includes("高"))).length} ·
-          Medium ${vulns.filter(v=>v.level&&(v.level.toLowerCase().includes("med")||v.level.includes("中"))).length}
-        </div>
-      </div>
-      ${target.url ? `<div style="font-size:11px;color:var(--text-muted);text-align:right;">${target.url}</div>` : ""}
-    </div>
-  </div>
-
   <!-- Vuln list -->
   ${vulns.length > 0 ? `
   <div class="card" style="padding:16px;flex-shrink:0;max-height:300px;overflow-y:auto;">
