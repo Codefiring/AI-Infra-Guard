@@ -111,6 +111,7 @@ function connectToTask(taskId) {
     });
     es.onerror = () => {
       es.close();
+      if (AppState.eventSource !== es) return; // closed externally (e.g. abortTask), skip retry
       if (retries < 3) { retries++; setTimeout(connect, 3000); }
       else { AppState.eventSource = null; stopLogPolling(); render(); }
     };
@@ -119,25 +120,15 @@ function connectToTask(taskId) {
 }
 
 async function abortTask(id) {
-  if (!confirm("Abort this scan task?")) return;
   if (AppState.eventSource) { AppState.eventSource.close(); AppState.eventSource = null; }
-  // Immediately patch local state for instant visual feedback
-  const task = AppState.tasks.find(t => t.id === id);
-  if (task) {
-    task.status = "failed";
-    task.targets?.forEach(target => {
-      target.stages?.forEach(s => {
-        if (s.status === "running" || s.status === "pending") s.status = "error";
-      });
-    });
-    render();
-  }
+  AppState.tasks = AppState.tasks.filter(t => t.id !== id);
+  AppState.selectedTaskId = null;
+  stopLogPolling();
+  render();
   try {
-    await fetch(`/api/tasks/${id}`, { method:"DELETE" });
-    await loadTasks();
-  } catch(e) {
-    render();
-  }
+    await fetch(`/api/tasks/${id}`, { method: "DELETE" });
+    await fetch(`/api/tasks/${id}/record`, { method: "DELETE" });
+  } catch(e) { /* best-effort cleanup */ }
 }
 
 async function deleteTask(id) {
