@@ -4,8 +4,7 @@
 function renderScanMode(task) {
   const target = task.targets[0];
   if (!target) return `<div style="color:var(--text-muted);text-align:center;padding:40px;">No scan target</div>`;
-  const isRunning = task.status === "running" || task.status === "pending"
-    || AppState.eventSource !== null;
+  const isRunning = task.status === "running" || task.status === "pending";
   const stages = target.stages || [];
   const completed = stages.filter(s => s.status === "completed").length;
   const total = stages.length;

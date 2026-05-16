@@ -198,7 +198,7 @@ def poll_task_db(task_id: str, proc: subprocess.Popen):
 
         # Process exited — read final DB state
         task = db.task_get(task_id)
-        if task and task["status"] == "running":
+        if task and task["status"] in ("pending", "running"):
             # mcp-scan crashed without calling task_set_done
             db.task_set_done(task_id, "failed", f"Process exited (code {proc.returncode})")
         # Final flush — catch stage/result events written during the last poll interval
@@ -252,8 +252,9 @@ async def sse_generator(task_id: str) -> AsyncGenerator[str, None]:
         if task:
             yield f"event: init\ndata: {json.dumps(task)}\n\n"
 
-        # If task is already done, just close
+        # If task is already done, notify frontend then close
         if task and task["status"] not in ("pending", "running"):
+            yield f"event: done\ndata: {json.dumps({'status': task['status']})}\n\n"
             return
 
         while True:

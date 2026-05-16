@@ -112,7 +112,7 @@ function connectToTask(taskId) {
     es.onerror = () => {
       es.close();
       if (retries < 3) { retries++; setTimeout(connect, 3000); }
-      else stopLogPolling();
+      else { AppState.eventSource = null; stopLogPolling(); render(); }
     };
   }
   connect();
