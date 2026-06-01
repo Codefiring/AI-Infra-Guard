@@ -70,23 +70,12 @@ If a threat is NOT in the YAML, DO NOT test it.
    - Normal result → note as "unauthenticated call succeeded"
 4. **Apply verdict logic** from `crispe.capabilities` and report the finding.
 
-## Output Requirements (Coordinator Parsing)
-You MUST call the local `finish` tool at the end. The `content` MUST contain:
+## Output Requirements
+Invoke each remote MCP tool directly by its real name via native tool calling, using only benign,
+non-destructive parameter values — do NOT write tool calls as text or emit any `<mcp_tool_calls>` block.
+When finished, call the `finish` tool with `content` containing:
 1. A summary of each tool call attempted and the response received.
 2. A clear verdict: **VULNERABILITY EXISTS** (if any tool was callable without auth) or **NO VULNERABILITY** (if all calls were rejected with auth errors).
-3. The standard output format block:
-
-Format (EXACT):
-<mcp_tool_calls>
-  <mcp_function=TOOL_NAME>
-    <parameter=PARAM_NAME>VALUE</parameter>
-  </mcp_function>
-</mcp_tool_calls>
-
-Rules:
-- Use real tool names from the MCP tools list.
-- Use benign parameter values only.
-- Use only `<mcp_function=...>` and `<parameter=...>` tags (no extra wrapper tags inside).
 
 ======
 You are connecting to this MCP server WITHOUT any authentication credentials.

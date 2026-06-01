@@ -22,6 +22,8 @@ class MCPTools:
         self.headers = headers
         # 缓存工具 schema，用于参数类型转换
         self._tools_schema: Dict[str, Dict[str, Any]] = {}
+        # 缓存工具描述，用于构建原生 tool calling 定义
+        self._tools_description: Dict[str, str] = {}
         # 缓存资源名称到 URI 的映射，便于按名称读取资源
         self._resources_index: Dict[str, str] = {}
 
@@ -140,6 +142,7 @@ class MCPTools:
         for t in data.tools:
             # 缓存工具 schema，用于后续参数类型转换
             self._tools_schema[t.name] = t.inputSchema
+            self._tools_description[t.name] = t.description or ""
 
             parameters = ''
             for k, param in t.inputSchema['properties'].items():
@@ -160,11 +163,27 @@ class MCPTools:
       {parameters}
     </parameters>
             ''')
-            name = t.name
-            detail = t.description or ""
-            xml_lines.append(f"detail:{detail} 调用格式:\n<tool_name>{name}</tool_name>\n</tool>")
         xml_lines.append("</mcp_tools>")
         return "\n".join(xml_lines)
+
+    def get_tool_schemas(self) -> list[Dict[str, Any]]:
+        """Return OpenAI-native function definitions for every cached remote MCP tool.
+
+        Requires ``describe_mcp_tools()`` to have been called first (it populates the schema cache).
+        Each remote tool is exposed as its own native function using its real JSON Schema.
+        """
+        schemas: list[Dict[str, Any]] = []
+        for name, input_schema in self._tools_schema.items():
+            parameters = input_schema if isinstance(input_schema, dict) else {"type": "object", "properties": {}}
+            schemas.append({
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "description": self._tools_description.get(name, ""),
+                    "parameters": parameters,
+                },
+            })
+        return schemas
 
     async def describe_mcp_resources(self) -> str:
         """

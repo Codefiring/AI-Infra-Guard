@@ -1,11 +1,10 @@
 import inspect
 import copy
-from typing import Any, Dict, Optional, TYPE_CHECKING
-from tools.registry import get_tool_by_name, needs_context
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from tools.registry import get_tool_by_name, needs_context, build_local_tool_schemas
 from utils.mcp_tools import MCPTools
 from utils.loging import logger
 from utils.prompt_manager import prompt_manager
-from tools.registry import get_tools_prompt
 
 if TYPE_CHECKING:  # pragma: no cover
     from utils.tool_context import ToolContext
@@ -81,61 +80,95 @@ class ToolDispatcher:
         return None
 
     async def get_all_tools_prompt(self) -> str:
-        """获取所有可用工具的描述 Prompt"""
+        """Build the tool-context section of the system prompt.
+
+        Tool *call* schemas are now delivered via the native ``tools=`` API (see
+        ``get_tool_definitions``), so the local-tool XML dump is no longer emitted here. For dynamic
+        (MCP) stages we still inject a human-readable listing of the remote tools and resources, which
+        gives the model attack-surface context and (for resources) tells it what is readable.
+        """
+        if not self.mcp_server_url:
+            return ""
+
+        manager = await self._ensure_mcp_manager()
+        if not manager:
+            raise RuntimeError("Failed to connect to MCP server")
+        try:
+            # Describe remote tools (also populates the schema cache used by get_tool_definitions).
+            mcp_tools_xml = await manager.describe_mcp_tools()
+            # Describe remote resources (best-effort; do not fail the prompt if this fails).
+            try:
+                mcp_resources_xml = await manager.describe_mcp_resources()
+            except Exception as re:
+                logger.warning(f"Failed to fetch MCP resources description: {re}")
+                mcp_resources_xml = ""
+
+            return prompt_manager.format_prompt(
+                "dynamic/system_prompt",
+                mcp_tools=mcp_tools_xml,
+                mcp_resources=mcp_resources_xml,
+            )
+        except Exception as e:
+            logger.error(f"Failed to fetch MCP tools/resources description: {e}")
+            return ""
+
+    async def get_tool_definitions(self) -> List[Dict[str, Any]]:
+        """Build OpenAI-native tool definitions for the current stage.
+
+        Mirrors the tool-set logic of ``get_all_tools_prompt``:
+        - Normal stages: local ``finish, think, read_file, execute_shell``.
+        - Dynamic (MCP) stages: local ``finish, think, mcp_resource`` plus one native function per
+          remote MCP tool (using its real JSON Schema).
+        """
         common_tools = ['finish', 'think']
 
-        normal_tools = copy.copy(common_tools)
-        normal_tools.extend(['read_file', 'execute_shell'])
-
-        dynamic_tools = copy.copy(common_tools)
-        dynamic_tools.extend(['mcp_tool'])
-
         if self.mcp_server_url:
-            prompt = get_tools_prompt(dynamic_tools or [])
+            local_tools = copy.copy(common_tools)
+            local_tools.append('mcp_resource')
+            definitions = build_local_tool_schemas(local_tools)
+
             manager = await self._ensure_mcp_manager()
             if not manager:
                 raise RuntimeError("Failed to connect to MCP server")
-            try:
-                # Describe remote tools
-                mcp_tools_xml = await manager.describe_mcp_tools()
-                # Describe remote resources (best-effort; do not fail tools prompt if this fails)
-                try:
-                    mcp_resources_xml = await manager.describe_mcp_resources()
-                except Exception as re:
-                    logger.warning(f"Failed to fetch MCP resources description: {re}")
-                    mcp_resources_xml = ""
+            # Ensure the remote tool schema cache is populated before reading it.
+            await manager.describe_mcp_tools()
+            definitions.extend(manager.get_tool_schemas())
+            return definitions
 
-                mcp_remote_prompt = prompt_manager.format_prompt(
-                    "dynamic/system_prompt",
-                    mcp_tools=mcp_tools_xml,
-                    mcp_resources=mcp_resources_xml,
-                )
-                prompt += f"\n\n{mcp_remote_prompt}"
-            except Exception as e:
-                logger.error(f"Failed to fetch MCP tools/resources description: {e}")
-                return prompt
-        else:
-            prompt = get_tools_prompt(normal_tools or [])
+        normal_tools = copy.copy(common_tools)
+        normal_tools.extend(['read_file', 'execute_shell'])
+        return build_local_tool_schemas(normal_tools)
 
-        return prompt
+    def _is_remote_tool(self, tool_name: str) -> bool:
+        return bool(self.mcp_tools_manager and tool_name in self.mcp_tools_manager._tools_schema)
 
     async def call_tool(self, tool_name: str, args: Dict[str, Any], context: Optional["ToolContext"] = None) -> str:
         """统一调用入口：自动识别是本地还是远程工具"""
         # 1. 尝试作为本地工具调用
         tool_func = get_tool_by_name(tool_name)
-        print(f"tool_func: {tool_func}")
         if tool_func:
             if needs_context(tool_name) and context:
                 args["context"] = context
 
             try:
                 result = tool_func(**args)
-                print(f"result: {result}")
             except Exception as e:
                 return f"Error: {e}"
             if inspect.isawaitable(result):
                 result = await result
             return self._format_result(result)
+
+        # 2. 否则尝试作为远程 MCP 工具调用（原生 tool calling 下每个远程工具都是一个独立函数）
+        if self._is_remote_tool(tool_name):
+            try:
+                if context is not None:
+                    result = await context.call_mcp_tools(tool_name, args)
+                else:
+                    result = await self.mcp_tools_manager.call_remote_tool(tool_name, **args)
+            except Exception as e:
+                return f"Error: {e}"
+            return self._format_result(result)
+
         return f"Error: Tool '{tool_name}' not found locally or MCP server is unavailable"
 
     def _format_result(self, result: Any) -> str:

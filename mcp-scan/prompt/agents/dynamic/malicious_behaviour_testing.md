@@ -337,21 +337,10 @@ If a threat is NOT in the YAML, DO NOT test it.
 3. **Testcase generation (>= 3 per dimension)**:
    - For each threat dimension, generate at least 3 cases (baseline/edge/adversarial).
 4. **Output executable MCP tool calls**:
-   - Output ONLY MCP tool calls in the required format so the coordinator can execute them.
+   - Invoke the relevant remote MCP tools directly via native tool calling to execute the testcases.
 
-## Output Requirements (Coordinator Parsing)
-You MUST call the local `finish` tool at the end. The `content` MUST contain exactly ONE `<mcp_tool_calls>` block.
-
-Format (EXACT):
-<mcp_tool_calls>
-  <mcp_function=TOOL_NAME>
-    <parameter=PARAM_NAME>VALUE</parameter>
-  </mcp_function>
-</mcp_tool_calls>
-
-Rules:
-- Use real tool names from the MCP tools list.
-- Use only `<mcp_function=...>` and `<parameter=...>` tags (no extra wrapper tags inside).
+## Output Requirements
+Invoke the remote MCP tools directly by their real names via native tool calling — do NOT write tool calls as text or emit any `<mcp_tool_calls>` block. When you have finished testing, call the `finish` tool with a concise plain-text summary of which tools you invoked, the payloads used, the responses observed, and your verdict.
 
 ======
 If you understand the above specifications and the provided YAML task, begin generating MCP tool-call testcases now.

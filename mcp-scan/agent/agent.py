@@ -10,7 +10,6 @@ from utils.prompt_manager import prompt_manager
 from utils.loging import logger
 from utils.aig_logger import mcpLogger
 from utils.project_analyzer import analyze_language, get_top_language, calc_mcp_score
-from utils.parse import parse_mcp_invocations
 
 
 def _parse_stage_reports(all_reports: list) -> tuple:

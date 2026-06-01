@@ -1,11 +1,12 @@
 import inspect
 import os
 import re
+import typing
 from collections.abc import Callable
 from functools import wraps
 from inspect import signature
 from pathlib import Path
-from typing import Any
+from typing import Any, Union
 from utils.loging import logger
 
 tools: list[dict[str, Any]] = []
@@ -158,3 +159,79 @@ def get_tools_prompt(tool_list: list = []) -> str:
 def clear_registry() -> None:
     tools.clear()
     _tools_by_name.clear()
+
+
+# Parameters that are injected by the framework, not supplied by the model.
+_INJECTED_PARAMS = {"context", "agent_state"}
+
+_PY_TO_JSON_TYPE = {
+    str: "string",
+    int: "integer",
+    float: "number",
+    bool: "boolean",
+    list: "array",
+    dict: "object",
+}
+
+
+def _annotation_to_json_type(annotation: Any) -> str:
+    """Map a Python type annotation to a JSON-Schema type, unwrapping Optional/Union."""
+    origin = typing.get_origin(annotation)
+    if origin is Union:
+        args = [a for a in typing.get_args(annotation) if a is not type(None)]
+        if args:
+            return _annotation_to_json_type(args[0])
+        return "string"
+    if origin in (list, typing.List):
+        return "array"
+    if origin in (dict, typing.Dict):
+        return "object"
+    return _PY_TO_JSON_TYPE.get(annotation, "string")
+
+
+def _build_function_schema(func: Callable[..., Any]) -> dict[str, Any]:
+    """Derive an OpenAI function definition from a tool's signature + docstring."""
+    sig = signature(func)
+    try:
+        hints = typing.get_type_hints(func)
+    except Exception:
+        hints = {}
+
+    properties: dict[str, Any] = {}
+    required: list[str] = []
+    for pname, param in sig.parameters.items():
+        if pname in _INJECTED_PARAMS:
+            continue
+        if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+            continue
+        annotation = hints.get(pname, param.annotation)
+        json_type = _annotation_to_json_type(annotation) if annotation is not inspect.Parameter.empty else "string"
+        properties[pname] = {"type": json_type}
+        if param.default is inspect.Parameter.empty:
+            required.append(pname)
+
+    description = inspect.getdoc(func) or func.__name__
+    return {
+        "type": "function",
+        "function": {
+            "name": func.__name__,
+            "description": description,
+            "parameters": {
+                "type": "object",
+                "properties": properties,
+                "required": required,
+            },
+        },
+    }
+
+
+def build_local_tool_schemas(tool_list: list[str]) -> list[dict[str, Any]]:
+    """Build OpenAI-native tool definitions for the named local tools."""
+    schemas: list[dict[str, Any]] = []
+    for name in tool_list:
+        func = _tools_by_name.get(name)
+        if func is None:
+            logger.warning(f"build_local_tool_schemas: unknown tool '{name}'")
+            continue
+        schemas.append(_build_function_schema(func))
+    return schemas

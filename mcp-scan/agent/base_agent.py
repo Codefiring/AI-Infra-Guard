@@ -5,11 +5,9 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 from tools.dispatcher import ToolDispatcher
-from tools.registry import get_tool_by_name, get_tools_prompt, needs_context
 from utils.config import base_dir
 from utils.llm import LLM
 from utils.loging import logger
-from utils.parse import parse_tool_invocations, clean_content, parse_mcp_invocations
 from utils.tool_context import ToolContext
 from utils.aig_logger import mcpLogger
 from utils.prompt_manager import prompt_manager
@@ -39,6 +37,7 @@ class BaseAgent:
         self.capabilities = capabilities or ["standard"]
         self.output_format = output_format
         self.history = []
+        self.tools = []
         self.max_iter = 80
         self.iter = 0
         self.is_finished = False
@@ -49,10 +48,12 @@ class BaseAgent:
         self.language = language
 
     async def initialize(self):
-        """异步初始化系统提示词"""
+        """异步初始化系统提示词与原生工具定义"""
         if not self.history:
             system_prompt = await self.generate_system_prompt()
             self.history.append({"role": "system", "content": system_prompt})
+        if not self.tools:
+            self.tools = await self.dispatcher.get_tool_definitions()
 
     def add_user_message(self, message: str):
         self.history.append({"role": "user", "content": message})
@@ -97,37 +98,57 @@ class BaseAgent:
         logger.info(f"Agent {self.name} started with max_iter={self.max_iter}")
         result = ""
         while not self.is_finished and self.iter < self.max_iter:
+            self.iter += 1
             logger.debug(f"\n{'=' * 50}\nIteration {self.iter}\n{'=' * 50}")
-            response = self.llm.chat(self.history, self.debug)
-            logger.debug(f"LLM Response: {response}")
-            self.history.append({"role": "assistant", "content": response})
-            res = await self.handle_response(response)
+            message = self.llm.chat_with_tools(self.history, self.tools)
+            logger.debug(f"LLM Response: {message}")
+            self.history.append(message)
+            res = await self.handle_response(message)
             if res is not None:
                 result = res
-            if self.iter >= self.max_iter:
+            if not self.is_finished and self.iter >= self.max_iter:
                 logger.warning(f"Max iterations ({self.max_iter}) reached")
                 self.compact_history()
         return result
 
-    async def handle_response(self, response: str):
-        tool_invocations = parse_tool_invocations(response)
-        description = clean_content(response)
-        if description == "":
-            description = "我将继续执行"
+    async def handle_response(self, message: dict):
+        description = message.get("content") or ""
+        tool_calls = message.get("tool_calls") or []
+
+        display = description
+        if display == "":
+            display = "我将继续执行"
             if self.language == "en":
-                description = "I will continue to execute"
+                display = "I will continue to execute"
 
-        mcpLogger.status_update(self.step_id, description, "", "running")
+        mcpLogger.status_update(self.step_id, display, "", "running")
 
-        if tool_invocations:
-            return await self.process_tool_call(tool_invocations, description)
-        else:
-            return await self.handle_no_tool(description)
+        if not tool_calls:
+            return await self.handle_no_tool(display)
+
+        result = None
+        for tool_call in tool_calls:
+            res = await self.process_tool_call(tool_call, display)
+            if res is not None:
+                result = res
+            if self.is_finished:
+                break
+
+        mcpLogger.status_update(self.step_id, display, "", "completed")
+        return result
 
     async def process_tool_call(self, tool_call: dict, description: str):
-        tool_name = tool_call["toolName"]
-        tool_args = tool_call["args"]
-        tool_id = uuid.uuid4().__str__()
+        tool_id = tool_call.get("id") or uuid.uuid4().__str__()
+        fn = tool_call.get("function", {})
+        tool_name = fn.get("name", "")
+        raw_args = fn.get("arguments", "") or "{}"
+        try:
+            tool_args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+        except json.JSONDecodeError:
+            logger.warning(f"Failed to parse tool arguments for {tool_name}: {raw_args!r}")
+            tool_args = {}
+        if not isinstance(tool_args, dict):
+            tool_args = {}
 
         params = json.dumps(tool_args, ensure_ascii=False) if tool_args else ""
         if isinstance(params, str):
@@ -137,10 +158,13 @@ class BaseAgent:
 
         if tool_name == "finish":
             self.is_finished = True
-            brief_content = tool_args.get("content", "")
             logger.info(f"Finish tool called, final result formatted.")
-            mcpLogger.status_update(self.step_id, description, "", "completed")
-            # mcpLogger.tool_used(self.step_id, tool_id, "报告整合", "done", tool_name, brief_content.split("\n")[0][:50])
+            # Answer the tool call so the conversation history stays well-formed.
+            self.history.append({
+                "role": "tool",
+                "tool_call_id": tool_id,
+                "content": "Task completion acknowledged.",
+            })
             result = await self._format_final_output()
             mcpLogger.action_log(tool_id, tool_name, self.step_id, result)
             return result
@@ -156,27 +180,28 @@ class BaseAgent:
             tool_dispatcher=self.dispatcher
         )
 
-        # 通过 Dispatcher 调用工具
+        # 通过 Dispatcher 调用工具（本地工具或远程 MCP 工具）
         tool_result = await self.dispatcher.call_tool(tool_name, tool_args, context)
-
-        # 格式化工具结果并添加到历史
         result_message = f"{tool_result}"
 
-        # 添加下一轮提示
-        next_p = self.next_prompt()
-        full_message = f"{next_p}\n\n{result_message}"
-
-        self.history.append({"role": "user", "content": full_message})
-        mcpLogger.status_update(self.step_id, description, "", "completed")
+        # 以 role:"tool" 消息回送结果，匹配本次 tool_call 的 id
+        self.history.append({
+            "role": "tool",
+            "tool_call_id": tool_id,
+            "content": result_message,
+        })
 
         if tool_name != "read_file":
             mcpLogger.action_log(tool_id, tool_name, self.step_id, f"```\n{result_message}\n```")
 
-        # mcpLogger.tool_used(self.step_id, tool_id, tool_name, "done", tool_name, f"{params}")
         return None
 
     async def handle_no_tool(self, description: str):
-        # todo
+        # 模型未调用任何工具时，提示其继续调用工具或调用 finish 结束。
+        nudge = "请通过调用工具继续完成任务；当任务完成时调用 finish 工具结束。"
+        if self.language == "en":
+            nudge = "Please continue by calling a tool; call the finish tool when the task is complete."
+        self.history.append({"role": "user", "content": nudge})
         return None
 
     async def _format_final_output(self) -> str:
