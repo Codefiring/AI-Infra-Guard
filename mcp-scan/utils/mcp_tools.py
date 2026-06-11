@@ -8,6 +8,12 @@ from mcp import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client
 
+from utils.loging import logger
+
+
+MCP_OPERATION_TIMEOUT_SECONDS = 30
+MCP_OPERATION_RETRIES = 2
+
 
 class MCPTools:
     """Small MCP-only wrapper used by this repo (no agno dependency)."""
@@ -18,7 +24,8 @@ class MCPTools:
             headers = {}
         self.url = url
         self.transport = transport
-        self.timeout_seconds = 10
+        self.timeout_seconds = MCP_OPERATION_TIMEOUT_SECONDS
+        self.retries = MCP_OPERATION_RETRIES
         self.headers = headers
         # 缓存工具 schema，用于参数类型转换
         self._tools_schema: Dict[str, Dict[str, Any]] = {}
@@ -54,17 +61,48 @@ class MCPTools:
                 await session.initialize()
                 yield session
 
+    def _format_exception(self, exc: BaseException) -> str:
+        if isinstance(exc, asyncio.TimeoutError):
+            return f"TimeoutError: operation exceeded {self.timeout_seconds}s"
+        if isinstance(exc, BaseExceptionGroup):
+            return self._extract_root_cause(exc)
+        return f"{type(exc).__name__}: {exc}"
+
+    async def _run_with_retries(self, operation_name: str, operation):
+        attempts = self.retries + 1
+        last_error = ""
+        for attempt in range(1, attempts + 1):
+            try:
+                return await asyncio.wait_for(operation(), timeout=self.timeout_seconds)
+            except asyncio.TimeoutError as exc:
+                last_error = self._format_exception(exc)
+            except BaseExceptionGroup as exc:
+                last_error = self._format_exception(exc)
+            except Exception as exc:
+                last_error = self._format_exception(exc)
+
+            if attempt < attempts:
+                logger.warning(
+                    f"MCP {operation_name} failed on attempt {attempt}/{attempts}: "
+                    f"{last_error}; retrying"
+                )
+                await asyncio.sleep(min(attempt, 3))
+
+        raise RuntimeError(
+            f"MCP {operation_name} failed after {attempts} attempts: {last_error}"
+        )
+
     def _build_parameter_attributes(self, param: Dict[str, Any]) -> str:
         """构建参数的 XML 属性字符串，包含所有 schema 信息"""
         attrs = []
-        
+
         # 基础属性：type 和 required 在调用处处理
-        
+
         # description: 描述
         if 'description' in param and param['description']:
             desc = str(param['description']).replace('"', '&quot;')
             attrs.append(f'description="{desc}"')
-        
+
         # enum: 枚举值列表
         if 'enum' in param and param['enum']:
             enum_values = param['enum']
@@ -72,7 +110,7 @@ class MCPTools:
                 enum_str = ','.join(str(v) for v in enum_values)
                 enum_str = enum_str.replace('"', '&quot;')
                 attrs.append(f'enum="{enum_str}"')
-        
+
         # default: 默认值
         if 'default' in param:
             default_val = param['default']
@@ -82,28 +120,28 @@ class MCPTools:
                 default_str = str(default_val)
             default_str = default_str.replace('"', '&quot;')
             attrs.append(f'default="{default_str}"')
-        
+
         # minimum/maximum: 数值范围
         if 'minimum' in param:
             attrs.append(f'minimum="{param["minimum"]}"')
         if 'maximum' in param:
             attrs.append(f'maximum="{param["maximum"]}"')
-        
+
         # minLength/maxLength: 字符串长度限制
         if 'minLength' in param:
             attrs.append(f'minLength="{param["minLength"]}"')
         if 'maxLength' in param:
             attrs.append(f'maxLength="{param["maxLength"]}"')
-        
+
         # pattern: 正则表达式模式
         if 'pattern' in param and param['pattern']:
             pattern_str = str(param['pattern']).replace('"', '&quot;')
             attrs.append(f'pattern="{pattern_str}"')
-        
+
         # format: 格式（如 date-time, email, uri 等）
         if 'format' in param and param['format']:
             attrs.append(f'format="{param["format"]}"')
-        
+
         # examples: 示例值
         if 'examples' in param and param['examples']:
             examples = param['examples']
@@ -111,7 +149,7 @@ class MCPTools:
                 examples_str = ','.join(str(v) for v in examples)
                 examples_str = examples_str.replace('"', '&quot;')
                 attrs.append(f'examples="{examples_str}"')
-        
+
         # items: 数组元素类型（对于 array 类型）
         if 'items' in param:
             items = param['items']
@@ -124,19 +162,16 @@ class MCPTools:
                         items_enum_str = ','.join(str(v) for v in items_enum)
                         items_enum_str = items_enum_str.replace('"', '&quot;')
                         attrs.append(f'itemsEnum="{items_enum_str}"')
-        
+
         return ' '.join(attrs)
 
     async def describe_mcp_tools(self) -> str:
         """Return `<mcp_tools>` XML listing tool names and descriptions."""
-        try:
+        async def _list_tools():
             async with self._session() as session:
-                data = await session.list_tools()
-        except BaseExceptionGroup as eg:
-            root_cause = self._extract_root_cause(eg)
-            raise RuntimeError(f"Failed to fetch MCP tools: {root_cause}") from eg
-        except Exception as e:
-            raise RuntimeError(f"Failed to fetch MCP tools: {type(e).__name__}: {e}") from e
+                return await session.list_tools()
+
+        data = await self._run_with_retries("list_tools", _list_tools)
 
         xml_lines = ["<mcp_tools>"]
         for t in data.tools:
@@ -191,15 +226,11 @@ class MCPTools:
         This is used to let the LLM understand what readonly resources the remote MCP
         server exposes so it can plan safe dynamic scans.
         """
-        try:
+        async def _list_resources():
             async with self._session() as session:
-                data = await session.list_resources()
-        except BaseExceptionGroup as eg:  # type: ignore[name-defined]
-            # Python 3.11+ ExceptionGroup from anyio / MCP internals
-            root_cause = self._extract_root_cause(eg)
-            raise RuntimeError(f"Failed to fetch MCP resources: {root_cause}") from eg
-        except Exception as e:  # pragma: no cover - network / protocol errors
-            raise RuntimeError(f"Failed to fetch MCP resources: {type(e).__name__}: {e}") from e
+                return await session.list_resources()
+
+        data = await self._run_with_retries("list_resources", _list_resources)
 
         xml_lines = ["<mcp_resources>"]
         self._resources_index.clear()
@@ -302,7 +333,7 @@ class MCPTools:
         # 根据 schema 转换参数类型
         converted_kw = self._convert_args_by_schema(tool_name, kw)
 
-        try:
+        async def _call_tool():
             async with self._session() as session:
                 result = await session.call_tool(tool_name, converted_kw)
                 if result is None:
@@ -313,12 +344,9 @@ class MCPTools:
                     return result.text
                 elif hasattr(result, 'data'):
                     return result.data
-        except BaseExceptionGroup as eg:
-            # 提取 TaskGroup 中的原始错误
-            root_cause = self._extract_root_cause(eg)
-            raise RuntimeError(f"MCP call failed: {root_cause}") from eg
-        except Exception as e:
-            raise RuntimeError(f"MCP call failed: {type(e).__name__}: {e}") from e
+                return result
+
+        return await self._run_with_retries(f"call_tool:{tool_name}", _call_tool)
 
     async def read_remote_resource(self, *, resource_name: Optional[str] = None, uri: Optional[str] = None) -> Any:
         """
@@ -351,14 +379,11 @@ class MCPTools:
         if not target_uri:
             raise RuntimeError(f"Unknown MCP resource: name={resource_name!r}, uri={uri!r}")
 
-        try:
+        async def _read_resource():
             async with self._session() as session:
-                result = await session.read_resource(target_uri)
-        except BaseExceptionGroup as eg:  # type: ignore[name-defined]
-            root_cause = self._extract_root_cause(eg)
-            raise RuntimeError(f"MCP resource read failed: {root_cause}") from eg
-        except Exception as e:
-            raise RuntimeError(f"MCP resource read failed: {type(e).__name__}: {e}") from e
+                return await session.read_resource(target_uri)
+
+        result = await self._run_with_retries(f"read_resource:{target_uri}", _read_resource)
 
         # 将资源内容标准化为可读形式：
         # - 若有多个 TextResourceContents，则按顺序拼接

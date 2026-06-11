@@ -1,3 +1,4 @@
+import asyncio
 import os
 import re
 import time
@@ -10,6 +11,9 @@ from utils.prompt_manager import prompt_manager
 from utils.loging import logger
 from utils.aig_logger import mcpLogger
 from utils.project_analyzer import analyze_language, get_top_language, calc_mcp_score
+
+
+DYNAMIC_STAGE_TIMEOUT_SECONDS = 8 * 60
 
 
 def _parse_stage_reports(all_reports: list) -> tuple:
@@ -244,6 +248,20 @@ class ScanPipeline:
                 )
 
 
+def _build_skipped_stage_report(stage_name: str, risk_type: str, reason: str) -> str:
+    safe_reason = str(reason).strip() or "Unknown error"
+    return (
+        "# Overview\n- NO\n\n"
+        "# Threats\n\n"
+        "# Reasons\n"
+        f"- {risk_type}: Stage \"{stage_name}\" was skipped after MCP retries or timeout. "
+        f"Reason: {safe_reason}\n\n"
+        "# Summarization\n"
+        f"{stage_name} did not complete because MCP access failed or timed out. "
+        "The scanner skipped this stage and continued with the remaining stages."
+    )
+
+
 class Agent:
     def __init__(self, llm, specialized_llms: dict = None, debug: bool = False,
                  server_url: str = None, language='zh', headers=None, oauth_config=None):
@@ -382,16 +400,48 @@ MCP安全扫描共覆盖15类风险：恶意行为检测包括 MCP02 工具投�
                 except Exception:
                     pass
 
+        async def _run_stage_with_timeout(
+                stage: ScanStage,
+                stage_prompt: str,
+                risk_type: str,
+                context_data: Dict[str, Any] | None = None,
+                use_oauth: bool = True,
+        ) -> tuple[str, bool]:
+            try:
+                report = await asyncio.wait_for(
+                    self.pipeline.execute_stage_dynamic(
+                        stage,
+                        stage_prompt,
+                        context_data,
+                        use_oauth=use_oauth,
+                    ),
+                    timeout=DYNAMIC_STAGE_TIMEOUT_SECONDS,
+                )
+                return report, False
+            except asyncio.TimeoutError:
+                reason = f"stage exceeded {DYNAMIC_STAGE_TIMEOUT_SECONDS} seconds"
+            except Exception as exc:
+                reason = str(exc)
+
+            logger.error(f"Dynamic stage {stage.stage_id} ({stage.name}) skipped: {reason}")
+            mcpLogger.error_log(f"Dynamic stage {stage.stage_id} ({stage.name}) skipped: {reason}")
+            try:
+                await self.dispatcher.close()
+            except Exception:
+                pass
+            return _build_skipped_stage_report(stage.name, risk_type, reason), True
+
         # Stage 1: Info Collection
         info_ret_format = "生成一份详细的MCP(model context protocol)信息收集报告，使用Markdown格式。报告需基于输入数据如实总结，确保读者（对项目一无所知）能快速理解项目全貌。"
         _stage_db(0, "running")
-        info_collection = await self.pipeline.execute_stage_dynamic(
+        info_collection, info_skipped = await _run_stage_with_timeout(
             ScanStage("0", "Info Collection", "agents/dynamic/project_summary", output_format=info_ret_format,
                       language=self.language),
-            prompt=prompt
+            stage_prompt=prompt,
+            risk_type="Info Collection",
         )
         result_meta["readme"] = info_collection
-        _stage_db(0, "completed", info_collection)
+        _stage_db(0, "error" if info_skipped else "completed", info_collection)
 
         # Per-type scan output format — risk_type is injected per stage to prevent LLM hallucination
         def make_vuln_format(risk_type: str) -> str:
@@ -447,13 +497,15 @@ MCP安全扫描共覆盖15类风险：恶意行为检测包括 MCP02 工具投�
         all_reports = []
         for stage_id, stage_name, template, use_oauth, risk_type in all_stages:
             _stage_db(int(stage_id), "running")
-            report = await self.pipeline.execute_stage_dynamic(
+            report, skipped = await _run_stage_with_timeout(
                 ScanStage(stage_id, stage_name, template,
                           output_format=make_vuln_format(risk_type), language=self.language),
-                prompt, {"信息收集报告": info_collection},
+                stage_prompt=prompt,
+                risk_type=risk_type,
+                context_data={"信息收集报告": info_collection},
                 use_oauth=use_oauth,
             )
-            _stage_db(int(stage_id), "completed", report)
+            _stage_db(int(stage_id), "error" if skipped else "completed", report)
             all_reports.append((stage_name, report, risk_type))
 
         # Stage 26: Vulnerability Review — aggregate per-stage findings directly (no LLM)

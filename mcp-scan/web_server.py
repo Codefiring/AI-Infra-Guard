@@ -181,7 +181,7 @@ def poll_task_db(task_id: str, proc: subprocess.Popen):
                             "stage_id": sid,
                             "name":     s["name"],
                             "status":   new_st,
-                            "output":   s.get("output", "") if new_st == "completed" else "",
+                            "output":   s.get("output", "") if new_st in ("completed", "error") else "",
                         })
                         last_stages[sid] = new_st
 
@@ -214,7 +214,7 @@ def poll_task_db(task_id: str, proc: subprocess.Popen):
                         "stage_id": sid,
                         "name":     s["name"],
                         "status":   new_st,
-                        "output":   s.get("output", "") if new_st == "completed" else "",
+                        "output":   s.get("output", "") if new_st in ("completed", "error") else "",
                     })
                     last_stages[sid] = new_st
             if not result_sent and target.get("score") is not None:
@@ -260,7 +260,7 @@ async def sse_generator(task_id: str) -> AsyncGenerator[str, None]:
             db.stages_mark_aborted(task_id)
             for s in (task.get("targets") or [{}])[0].get("stages", []):
                 if s["status"] in ("running", "pending"):
-                    yield f"event: stage\ndata: {json.dumps({'stage_id': s['stage_id'], 'name': s['name'], 'status': 'error', 'output': ''})}\n\n"
+                    yield f"event: stage\ndata: {json.dumps({'stage_id': s['stage_id'], 'name': s['name'], 'status': 'error', 'output': s.get('output', '')})}\n\n"
             yield f"event: done\ndata: {json.dumps({'status': task['status']})}\n\n"
             return
 
@@ -402,11 +402,21 @@ async def get_task_log(task_id: str, tail: int = 300):
         log_path = Path(stored) if Path(stored).is_absolute() else SCRIPT_DIR / stored
     else:
         log_path = SCRIPT_DIR / "logs" / f"{task_id}.log"
-    if not log_path.exists():
+    subprocess_log_path = SCRIPT_DIR / "logs" / f"{task_id}.subprocess.log"
+    log_paths = []
+    for path in (log_path, subprocess_log_path):
+        if path.exists() and path not in log_paths:
+            log_paths.append(path)
+
+    if not log_paths:
         return {"lines": [], "has_log": False}
     try:
-        with open(log_path, "r", errors="replace") as f:
-            lines = f.readlines()
+        lines = []
+        for path in log_paths:
+            if len(log_paths) > 1:
+                lines.append(f"===== {path.name} =====\n")
+            with open(path, "r", errors="replace") as f:
+                lines.extend(f.readlines())
         return {"lines": [l.rstrip("\n") for l in lines[-tail:]], "has_log": True}
     except Exception:
         return {"lines": [], "has_log": False}
@@ -482,13 +492,20 @@ def _launch_subprocess(body: TaskIn, profile: dict, task_id: str, target_id: str
     if body.oauth_scope:
         cmd += ["--oauth-scope",         body.oauth_scope]
 
-    return subprocess.Popen(
-        cmd,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        cwd=str(SCRIPT_DIR),
-        start_new_session=True,
-    )
+    log_dir = SCRIPT_DIR / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    subprocess_log = log_dir / f"{task_id}.subprocess.log"
+    log_file = open(subprocess_log, "ab", buffering=0)
+    try:
+        return subprocess.Popen(
+            cmd,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            cwd=str(SCRIPT_DIR),
+            start_new_session=True,
+        )
+    finally:
+        log_file.close()
 
 
 @app.delete("/api/tasks/{task_id}", status_code=204)
