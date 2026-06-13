@@ -5,6 +5,10 @@ from typing import List, Optional
 from utils.loging import logger
 
 
+LLM_TRANSIENT_RETRIES = 4
+LLM_TRANSIENT_BACKOFF_SECONDS = (5, 10, 20, 40)
+
+
 class LLM:
     def __init__(self, model, api_key, base_url):
         self.model = model
@@ -13,14 +17,52 @@ class LLM:
         self.client = openai.OpenAI(api_key=self.api_key, base_url=self.base_url, timeout=60)
         self.temperature = 0.7
 
+    def _is_retryable_error(self, exc: Exception) -> bool:
+        status_code = getattr(exc, "status_code", None)
+        response = getattr(exc, "response", None)
+        if status_code is None and response is not None:
+            status_code = getattr(response, "status_code", None)
+        if status_code in (408, 409, 429, 500, 502, 503, 504):
+            return True
+
+        msg = str(exc).lower()
+        retryable_markers = (
+            "rate limit",
+            "rate-limited",
+            "temporarily",
+            "upstream",
+            "enginecore encountered an issue",
+            "timeout",
+            "connection",
+            "service unavailable",
+            "bad gateway",
+        )
+        return any(marker in msg for marker in retryable_markers)
+
+    def _run_with_transient_retries(self, operation: str, fn):
+        for attempt in range(1, LLM_TRANSIENT_RETRIES + 2):
+            try:
+                return fn()
+            except Exception as exc:
+                if not self._is_retryable_error(exc) or attempt > LLM_TRANSIENT_RETRIES:
+                    raise
+                delay = LLM_TRANSIENT_BACKOFF_SECONDS[
+                    min(attempt - 1, len(LLM_TRANSIENT_BACKOFF_SECONDS) - 1)
+                ]
+                logger.warning(
+                    f"LLM {operation} transient error on attempt "
+                    f"{attempt}/{LLM_TRANSIENT_RETRIES + 1}: {exc}; retrying in {delay}s"
+                )
+                time.sleep(delay)
+
     def chat(self, message: List[dict], p=False):
         ret = ''
         retry = 0
         while True:
-            for word in self.chat_stream(message):
-                # if p:
-                #     print(word, end='', flush=True)
-                ret += word
+            ret = self._run_with_transient_retries(
+                "chat",
+                lambda: "".join(self.chat_stream(message)),
+            )
             if ret != '':
                 break
             else:
@@ -33,7 +75,6 @@ class LLM:
         if p:
             print(ret)
         return ret
-
 
     def chat_stream(self, message: List[dict]):
         response = self.client.chat.completions.create(
@@ -74,7 +115,10 @@ class LLM:
         """
         retry = 0
         while True:
-            content, tool_calls = self._stream_with_tools(message, tools)
+            content, tool_calls = self._run_with_transient_retries(
+                "chat_with_tools",
+                lambda: self._stream_with_tools(message, tools),
+            )
             if content or tool_calls:
                 break
             retry += 1

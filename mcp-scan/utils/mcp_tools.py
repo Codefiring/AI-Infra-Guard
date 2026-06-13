@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import json
 from datetime import timedelta
 from typing import Any, AsyncIterator, Dict, Literal, Optional
@@ -194,7 +195,6 @@ class MCPTools:
     <name>{t.name}</name>
     <description>{t.description}</description>
     <parameters>
-      <parameter name="tool_name" type=string required=true>tool_name is {t.name}</parameter>
       {parameters}
     </parameters>
             ''')
@@ -209,7 +209,11 @@ class MCPTools:
         """
         schemas: list[Dict[str, Any]] = []
         for name, input_schema in self._tools_schema.items():
-            parameters = input_schema if isinstance(input_schema, dict) else {"type": "object", "properties": {}}
+            parameters = copy.deepcopy(input_schema) if isinstance(input_schema, dict) else {"type": "object", "properties": {}}
+            if isinstance(parameters.get("properties"), dict):
+                parameters["properties"].pop("tool_name", None)
+            if isinstance(parameters.get("required"), list):
+                parameters["required"] = [p for p in parameters["required"] if p != "tool_name"]
             schemas.append({
                 "type": "function",
                 "function": {
@@ -322,20 +326,23 @@ class MCPTools:
         # 普通异常，返回其消息
         return f"{type(exc).__name__}: {exc}"
 
-    async def call_remote_tool(self, tool_name: str, **kw) -> Any:
+    async def call_remote_tool(self, remote_tool_name: str, **kw) -> Any:
         """
         Call remote MCP server tool.
         call: {"toolName": name, "args": {...}}
         """
-        if not tool_name:
+        if not remote_tool_name:
             raise ValueError("call_remote_tool requires call['toolName']")
+        if kw.get("tool_name") == remote_tool_name:
+            kw = dict(kw)
+            kw.pop("tool_name", None)
 
         # 根据 schema 转换参数类型
-        converted_kw = self._convert_args_by_schema(tool_name, kw)
+        converted_kw = self._convert_args_by_schema(remote_tool_name, kw)
 
         async def _call_tool():
             async with self._session() as session:
-                result = await session.call_tool(tool_name, converted_kw)
+                result = await session.call_tool(remote_tool_name, converted_kw)
                 if result is None:
                     return None
                 result = result.content[0]
@@ -346,7 +353,7 @@ class MCPTools:
                     return result.data
                 return result
 
-        return await self._run_with_retries(f"call_tool:{tool_name}", _call_tool)
+        return await self._run_with_retries(f"call_tool:{remote_tool_name}", _call_tool)
 
     async def read_remote_resource(self, *, resource_name: Optional[str] = None, uri: Optional[str] = None) -> Any:
         """
