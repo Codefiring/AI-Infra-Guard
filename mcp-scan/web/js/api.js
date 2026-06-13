@@ -38,6 +38,8 @@ async function startScan() {
 function startLogPolling(taskId) {
   stopLogPolling();
   async function fetchLog() {
+    const task = AppState.tasks.find(t => t.id === taskId);
+    if (!task) { stopLogPolling(); return; }
     try {
       const res = await fetch(`/api/tasks/${taskId}/log?tail=300`);
       if (!res.ok) return;
@@ -45,6 +47,7 @@ function startLogPolling(taskId) {
       AppState.logLines = data.lines || [];
       updateLogViewer();
     } catch(e) {}
+    if (task.status && !["pending", "running"].includes(task.status)) stopLogPolling();
   }
   fetchLog();
   AppState.logPollTimer = setInterval(fetchLog, 2000);
@@ -113,7 +116,7 @@ function connectToTask(taskId) {
       es.close();
       if (AppState.eventSource !== es) return; // closed externally (e.g. abortTask), skip retry
       if (retries < 3) { retries++; setTimeout(connect, 3000); }
-      else { AppState.eventSource = null; stopLogPolling(); render(); }
+      else { AppState.eventSource = null; render(); }
     };
   }
   connect();

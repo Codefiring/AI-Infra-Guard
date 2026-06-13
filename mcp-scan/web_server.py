@@ -397,6 +397,7 @@ async def get_task_log(task_id: str, tail: int = 300):
     task = db.task_get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+    tail = max(1, min(tail, 2000))
     stored = task.get("log_file")
     if stored:
         log_path = Path(stored) if Path(stored).is_absolute() else SCRIPT_DIR / stored
@@ -412,14 +413,30 @@ async def get_task_log(task_id: str, tail: int = 300):
         return {"lines": [], "has_log": False}
     try:
         lines = []
+        per_file_tail = max(tail, 1)
         for path in log_paths:
             if len(log_paths) > 1:
-                lines.append(f"===== {path.name} =====\n")
-            with open(path, "r", errors="replace") as f:
-                lines.extend(f.readlines())
-        return {"lines": [l.rstrip("\n") for l in lines[-tail:]], "has_log": True}
+                lines.append(f"===== {path.name} =====")
+            lines.extend(_tail_file_lines(path, per_file_tail))
+        return {"lines": lines[-tail:], "has_log": True}
     except Exception:
         return {"lines": [], "has_log": False}
+
+
+def _tail_file_lines(path: Path, max_lines: int, max_bytes: int = 256 * 1024) -> list[str]:
+    """Return the last max_lines lines without reading the whole log file."""
+    size = path.stat().st_size
+    if size <= 0:
+        return []
+    read_size = min(size, max_bytes)
+    with open(path, "rb") as f:
+        f.seek(size - read_size)
+        data = f.read(read_size)
+    text = data.decode("utf-8", errors="replace")
+    lines = text.splitlines()
+    if size > read_size and lines:
+        lines = lines[1:]
+    return lines[-max_lines:]
 
 
 @app.post("/api/tasks", status_code=201)
@@ -470,7 +487,7 @@ async def create_task(body: TaskIn):
 def _launch_subprocess(body: TaskIn, profile: dict, task_id: str, target_id: str) -> subprocess.Popen:
     """Build the subprocess command and launch it."""
     cmd = [
-        "python", str(SCRIPT_DIR / "main.py"),
+        sys.executable, str(SCRIPT_DIR / "main.py"),
         "--server_url", body.url,
         "-k", profile["api_key"],
         "-u", profile["base_url"],
