@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import List, Optional
 from tools.dispatcher import ToolDispatcher
 from utils.config import base_dir
-from utils.llm import LLM
+from utils.llm import LLM, parse_tool_arguments
 from utils.loging import logger
 from utils.tool_context import ToolContext
 from utils.aig_logger import mcpLogger
@@ -142,13 +142,7 @@ class BaseAgent:
         fn = tool_call.get("function", {})
         tool_name = fn.get("name", "")
         raw_args = fn.get("arguments", "") or "{}"
-        try:
-            tool_args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
-        except json.JSONDecodeError:
-            logger.warning(f"Failed to parse tool arguments for {tool_name}: {raw_args!r}")
-            tool_args = {}
-        if not isinstance(tool_args, dict):
-            tool_args = {}
+        tool_args = parse_tool_arguments(raw_args, tool_name)
 
         params = json.dumps(tool_args, ensure_ascii=False) if tool_args else ""
         if isinstance(params, str):

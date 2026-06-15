@@ -1,3 +1,5 @@
+import copy
+import json
 import time
 
 import openai
@@ -7,6 +9,80 @@ from utils.loging import logger
 
 LLM_TRANSIENT_RETRIES = 4
 LLM_TRANSIENT_BACKOFF_SECONDS = (5, 10, 20, 40)
+JSON_BAD_REQUEST_RETRY_MARKERS = (
+    "expecting ',' delimiter",
+    "expecting property name enclosed in double quotes",
+    "unterminated string",
+    "invalid json",
+    "json parse",
+    "could not parse",
+)
+
+
+def parse_tool_arguments(raw_args, tool_name: str = "") -> dict:
+    """Parse OpenAI tool-call arguments as a JSON object."""
+    if isinstance(raw_args, dict):
+        return raw_args
+    if raw_args in (None, ""):
+        return {}
+    if not isinstance(raw_args, str):
+        logger.warning(
+            f"Invalid tool arguments type for {tool_name or '<unknown>'}: "
+            f"{type(raw_args).__name__}; replacing with empty object"
+        )
+        return {}
+
+    try:
+        parsed = json.loads(raw_args)
+    except json.JSONDecodeError:
+        logger.warning(
+            f"Invalid tool arguments JSON for {tool_name or '<unknown>'}; "
+            f"replacing with empty object: {raw_args!r}"
+        )
+        return {}
+
+    if not isinstance(parsed, dict):
+        logger.warning(
+            f"Invalid tool arguments shape for {tool_name or '<unknown>'}: "
+            f"{type(parsed).__name__}; replacing with empty object"
+        )
+        return {}
+    return parsed
+
+
+def normalize_tool_arguments(raw_args, tool_name: str = "") -> str:
+    return json.dumps(parse_tool_arguments(raw_args, tool_name), ensure_ascii=False)
+
+
+def sanitize_tool_calls(tool_calls):
+    if not isinstance(tool_calls, list):
+        return tool_calls
+
+    sanitized = []
+    for tool_call in tool_calls:
+        if not isinstance(tool_call, dict):
+            sanitized.append(tool_call)
+            continue
+
+        item = copy.deepcopy(tool_call)
+        fn = item.get("function")
+        if isinstance(fn, dict):
+            fn["arguments"] = normalize_tool_arguments(
+                fn.get("arguments", "{}"),
+                fn.get("name", ""),
+            )
+        sanitized.append(item)
+    return sanitized
+
+
+def sanitize_tool_call_messages(messages: List[dict]) -> List[dict]:
+    sanitized_messages = copy.deepcopy(messages)
+    for message in sanitized_messages:
+        if not isinstance(message, dict):
+            continue
+        if message.get("role") == "assistant" and message.get("tool_calls"):
+            message["tool_calls"] = sanitize_tool_calls(message.get("tool_calls"))
+    return sanitized_messages
 
 
 class LLM:
@@ -38,6 +114,31 @@ class LLM:
             "bad gateway",
         )
         return any(marker in msg for marker in retryable_markers)
+
+    def _is_json_bad_request(self, exc: Exception) -> bool:
+        status_code = getattr(exc, "status_code", None)
+        response = getattr(exc, "response", None)
+        if status_code is None and response is not None:
+            status_code = getattr(response, "status_code", None)
+        if status_code != 400:
+            return False
+
+        msg = str(exc).lower()
+        return any(marker in msg for marker in JSON_BAD_REQUEST_RETRY_MARKERS)
+
+    def _create_chat_completion(self, operation: str, kwargs: dict):
+        try:
+            return self.client.chat.completions.create(**kwargs)
+        except Exception as exc:
+            if not self._is_json_bad_request(exc):
+                raise
+            logger.warning(
+                f"LLM {operation} got JSON bad request; "
+                f"retrying once after tool-call history sanitation: {exc}"
+            )
+            kwargs = dict(kwargs)
+            kwargs["messages"] = sanitize_tool_call_messages(kwargs.get("messages", []))
+            return self.client.chat.completions.create(**kwargs)
 
     def _run_with_transient_retries(self, operation: str, fn):
         for attempt in range(1, LLM_TRANSIENT_RETRIES + 2):
@@ -77,11 +178,14 @@ class LLM:
         return ret
 
     def chat_stream(self, message: List[dict]):
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=message,
-            temperature=self.temperature,
-            stream=True
+        response = self._create_chat_completion(
+            "chat",
+            dict(
+                model=self.model,
+                messages=sanitize_tool_call_messages(message),
+                temperature=self.temperature,
+                stream=True,
+            )
         )
 
         for chunk in response:
@@ -133,14 +237,14 @@ class LLM:
 
         msg = {"role": "assistant", "content": content or None}
         if tool_calls:
-            msg["tool_calls"] = tool_calls
+            msg["tool_calls"] = sanitize_tool_calls(tool_calls)
         return msg
 
     def _stream_with_tools(self, message: List[dict], tools: Optional[List[dict]]):
         """Single streamed call. Returns (content_str, tool_calls_list)."""
         kwargs = dict(
             model=self.model,
-            messages=message,
+            messages=sanitize_tool_call_messages(message),
             temperature=self.temperature,
             stream=True,
         )
@@ -148,7 +252,7 @@ class LLM:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
 
-        response = self.client.chat.completions.create(**kwargs)
+        response = self._create_chat_completion("chat_with_tools", kwargs)
 
         content_parts = []
         # Accumulate tool-call fragments keyed by their streamed index.
@@ -185,7 +289,13 @@ class LLM:
             tool_calls.append({
                 "id": slot["id"] or f"call_{idx}",
                 "type": "function",
-                "function": {"name": slot["name"], "arguments": slot["arguments"] or "{}"},
+                "function": {
+                    "name": slot["name"],
+                    "arguments": normalize_tool_arguments(
+                        slot["arguments"] or "{}",
+                        slot["name"],
+                    ),
+                },
             })
 
         return "".join(content_parts), tool_calls
