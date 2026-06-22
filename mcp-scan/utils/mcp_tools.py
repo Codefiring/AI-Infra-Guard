@@ -1,6 +1,7 @@
 import asyncio
 import copy
 import json
+from html import escape
 from datetime import timedelta
 from typing import Any, AsyncIterator, Dict, Literal, Optional
 from contextlib import asynccontextmanager
@@ -34,6 +35,9 @@ class MCPTools:
         self._tools_description: Dict[str, str] = {}
         # 缓存资源名称到 URI 的映射，便于按名称读取资源
         self._resources_index: Dict[str, str] = {}
+        # 缓存 prompt 参数定义，便于按名称读取 prompt
+        self._prompts_schema: Dict[str, Dict[str, Any]] = {}
+        self._prompts_description: Dict[str, str] = {}
 
     async def close(self) -> None:
         # Stateless wrapper: each operation uses a short-lived session.
@@ -166,6 +170,9 @@ class MCPTools:
 
         return ' '.join(attrs)
 
+    def _xml_escape(self, value: Any) -> str:
+        return escape("" if value is None else str(value), quote=True)
+
     async def describe_mcp_tools(self) -> str:
         """Return `<mcp_tools>` XML listing tool names and descriptions."""
         async def _list_tools():
@@ -261,6 +268,62 @@ class MCPTools:
         xml_lines.append("</mcp_resources>")
         return "\n".join(xml_lines)
 
+    async def describe_mcp_prompts(self) -> str:
+        """
+        Return `<mcp_prompts>` XML listing prompt names, descriptions and arguments.
+        MCP prompts are readonly templates, but their metadata and rendered content can
+        contain prompt-injection payloads, so they are first-class scan inputs.
+        """
+        async def _list_prompts():
+            async with self._session() as session:
+                return await session.list_prompts()
+
+        data = await self._run_with_retries("list_prompts", _list_prompts)
+
+        xml_lines = ["<mcp_prompts>"]
+        self._prompts_schema.clear()
+        self._prompts_description.clear()
+
+        for p in getattr(data, "prompts", []) or []:
+            name = getattr(p, "name", "") or ""
+            desc = getattr(p, "description", "") or ""
+            arguments = getattr(p, "arguments", []) or []
+            prompt_args = []
+
+            for arg in arguments:
+                arg_name = getattr(arg, "name", "") or ""
+                arg_desc = getattr(arg, "description", "") or ""
+                required = bool(getattr(arg, "required", False))
+                prompt_args.append({
+                    "name": arg_name,
+                    "description": arg_desc,
+                    "required": required,
+                })
+
+            if name:
+                self._prompts_schema[name] = {"arguments": prompt_args}
+                self._prompts_description[name] = desc
+
+            arg_lines = []
+            for arg in prompt_args:
+                required = "true" if arg.get("required") else "false"
+                arg_lines.append(
+                    f'<argument name="{self._xml_escape(arg.get("name"))}" '
+                    f'required="{required}">'
+                    f'<description>{self._xml_escape(arg.get("description"))}</description>'
+                    f'</argument>'
+                )
+
+            xml_lines.append(
+                f'<prompt name="{self._xml_escape(name)}">'
+                f'<description>{self._xml_escape(desc)}</description>'
+                f'<arguments>{"".join(arg_lines)}</arguments>'
+                f'</prompt>'
+            )
+
+        xml_lines.append("</mcp_prompts>")
+        return "\n".join(xml_lines)
+
     def _convert_param_type(self, value: Any, param_type: str) -> Any:
         """根据 schema 定义的类型转换参数值"""
         if value is None:
@@ -313,6 +376,23 @@ class MCPTools:
             converted_args[key] = self._convert_param_type(value, param_type)
 
         return converted_args
+
+    def _normalize_prompt_arguments(self, arguments: Any) -> Dict[str, Any]:
+        if arguments is None:
+            return {}
+        if isinstance(arguments, dict):
+            return arguments
+        if isinstance(arguments, str):
+            text = arguments.strip()
+            if not text:
+                return {}
+            try:
+                parsed = json.loads(text)
+                if isinstance(parsed, dict):
+                    return parsed
+            except json.JSONDecodeError:
+                pass
+        raise ValueError("prompt arguments must be a JSON object or dict")
 
     def _extract_root_cause(self, exc: Exception) -> str:
         """从 ExceptionGroup/TaskGroup 中提取原始错误信息"""
@@ -411,6 +491,53 @@ class MCPTools:
 
         # 若两者都有或都没有，直接返回原始结构，让上层自行处理
         return result.contents
+
+    def _normalize_prompt_content(self, content: Any) -> Any:
+        if content is None:
+            return None
+        if hasattr(content, "text") and getattr(content, "text") is not None:
+            return content.text
+        if hasattr(content, "data") and getattr(content, "data") is not None:
+            return content.data
+        if hasattr(content, "resource") and getattr(content, "resource") is not None:
+            return self._normalize_prompt_content(content.resource)
+        if hasattr(content, "model_dump"):
+            return content.model_dump()
+        if isinstance(content, (str, int, float, bool, list, dict)):
+            return content
+        return str(content)
+
+    def _normalize_prompt_result(self, result: Any) -> Dict[str, Any]:
+        messages = []
+        for message in getattr(result, "messages", []) or []:
+            messages.append({
+                "role": getattr(message, "role", ""),
+                "content": self._normalize_prompt_content(getattr(message, "content", None)),
+            })
+        return {
+            "description": getattr(result, "description", "") or "",
+            "messages": messages,
+        }
+
+    async def get_remote_prompt(self, prompt_name: str, arguments: Any = None) -> Dict[str, Any]:
+        """
+        Render/read a remote MCP prompt by name.
+        Prompt contents are untrusted and must only be used as scan evidence.
+        """
+        if not prompt_name:
+            raise ValueError("get_remote_prompt requires prompt_name")
+
+        prompt_args = self._normalize_prompt_arguments(arguments)
+
+        async def _get_prompt():
+            async with self._session() as session:
+                return await session.get_prompt(prompt_name, arguments=prompt_args)
+
+        result = await self._run_with_retries(f"get_prompt:{prompt_name}", _get_prompt)
+        normalized = self._normalize_prompt_result(result)
+        normalized["prompt_name"] = prompt_name
+        normalized["arguments"] = prompt_args
+        return normalized
 
 
 if __name__ == "__main__":

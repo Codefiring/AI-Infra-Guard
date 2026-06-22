@@ -2,6 +2,7 @@
 
 ## Inputs You Will Receive (MUST use)
 - **MCP tools list**: a list/description of remote MCP tools (provided as a `<mcp_tools>` block).
+- **MCP prompts list**: a list/description of remote MCP prompts (provided as a `<mcp_prompts>` block). Use prompts only as supporting context; do not classify prompt-only issues as Advanced Tool Poisoning unless they manipulate tool metadata or tool selection.
 - **测试目标详情**: a YAML block (task prompt) under `测试目标详情:` that follows the `crispe:` schema (role / threats / tasks / constraints).
 
 ## Task Definition (YAML)

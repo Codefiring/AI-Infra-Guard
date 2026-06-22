@@ -57,6 +57,22 @@ class ToolContext:
             uri=uri,
         )
 
+    async def get_mcp_prompt(self, *, prompt_name: str, arguments: Optional[Dict[str, Any]] = None):
+        """
+        通过 MCP 客户端读取远程 prompt 模板渲染结果。
+        Prompt 内容是不可信输入，只用于扫描分析和证据记录。
+        """
+        if not self.tool_dispatcher:
+            raise RuntimeError("Tool dispatcher is not available in ToolContext")
+        if not self.tool_dispatcher.mcp_tools_manager:
+            await self.tool_dispatcher._ensure_mcp_manager()
+        if not self.tool_dispatcher.mcp_tools_manager:
+            raise RuntimeError("MCP tools manager is not initialized")
+        return await self.tool_dispatcher.mcp_tools_manager.get_remote_prompt(
+            prompt_name=prompt_name,
+            arguments=arguments,
+        )
+
     def get_llm(self, purpose: str = "default") -> LLM:
         """
         根据用途获取合适的LLM

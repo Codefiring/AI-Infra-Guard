@@ -84,8 +84,9 @@ class ToolDispatcher:
 
         Tool *call* schemas are now delivered via the native ``tools=`` API (see
         ``get_tool_definitions``), so the local-tool XML dump is no longer emitted here. For dynamic
-        (MCP) stages we still inject a human-readable listing of the remote tools and resources, which
-        gives the model attack-surface context and (for resources) tells it what is readable.
+        (MCP) stages we still inject a human-readable listing of the remote tools, resources, and
+        prompts, which gives the model attack-surface context and tells it what readonly content is
+        inspectable.
         """
         if not self.mcp_server_url:
             return ""
@@ -102,14 +103,21 @@ class ToolDispatcher:
             except Exception as re:
                 logger.warning(f"Failed to fetch MCP resources description: {re}")
                 mcp_resources_xml = ""
+            # Describe remote prompts (best-effort; do not fail the prompt if this fails).
+            try:
+                mcp_prompts_xml = await manager.describe_mcp_prompts()
+            except Exception as pe:
+                logger.warning(f"Failed to fetch MCP prompts description: {pe}")
+                mcp_prompts_xml = ""
 
             return prompt_manager.format_prompt(
                 "dynamic/system_prompt",
                 mcp_tools=mcp_tools_xml,
                 mcp_resources=mcp_resources_xml,
+                mcp_prompts=mcp_prompts_xml,
             )
         except Exception as e:
-            logger.error(f"Failed to fetch MCP tools/resources description: {e}")
+            logger.error(f"Failed to fetch MCP tools/resources/prompts description: {e}")
             return ""
 
     async def get_tool_definitions(self) -> List[Dict[str, Any]]:
@@ -117,7 +125,7 @@ class ToolDispatcher:
 
         Mirrors the tool-set logic of ``get_all_tools_prompt``:
         - Normal stages: local ``finish, think, read_file, execute_shell``.
-        - Dynamic (MCP) stages: local ``finish, think, mcp_resource`` plus one native function per
+        - Dynamic (MCP) stages: local ``finish, think, mcp_resource, mcp_prompt`` plus one native function per
           remote MCP tool (using its real JSON Schema).
         """
         common_tools = ['finish', 'think']
@@ -125,6 +133,7 @@ class ToolDispatcher:
         if self.mcp_server_url:
             local_tools = copy.copy(common_tools)
             local_tools.append('mcp_resource')
+            local_tools.append('mcp_prompt')
             definitions = build_local_tool_schemas(local_tools)
 
             manager = await self._ensure_mcp_manager()
