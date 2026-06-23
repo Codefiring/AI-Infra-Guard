@@ -25,6 +25,8 @@ async def mcp_tool(tool_name: str, context: ToolContext = None, **kwargs) -> dic
 async def mcp_resource(
         resource_name: Optional[str] = None,
         uri: Optional[str] = None,
+        resource_template_name: Optional[str] = None,
+        template_args: Optional[dict[str, Any]] = None,
         context: ToolContext = None,
 ) -> dict[str, Any]:
     """
@@ -32,16 +34,27 @@ async def mcp_resource(
 
     - 可以通过 `resource_name`（资源名称）读取，内部会自动解析为 URI（基于资源列表缓存）
     - 也可以直接通过 `uri` 读取指定资源
+    - 也可以通过 `resource_template_name` 和 `template_args` 读取动态资源模板
     """
-    print(f"mcp_resource: resource_name={resource_name}, uri={uri}, context={context}")
+    print(
+        "mcp_resource: "
+        f"resource_name={resource_name}, uri={uri}, "
+        f"resource_template_name={resource_template_name}, "
+        f"template_args={template_args}, context={context}"
+    )
     if not context:
         return {"error": "ToolContext is required for mcp_resource"}
 
-    if not resource_name and not uri:
-        return {"error": "Either resource_name or uri must be provided for mcp_resource"}
+    if not resource_name and not uri and not resource_template_name:
+        return {"error": "resource_name, uri, or resource_template_name must be provided for mcp_resource"}
 
     try:
-        content = await context.read_mcp_resource(resource_name=resource_name, uri=uri)
+        content = await context.read_mcp_resource(
+            resource_name=resource_name,
+            uri=uri,
+            resource_template_name=resource_template_name,
+            template_args=template_args,
+        )
     except Exception as e:
         return {
             "error": str(e)
@@ -50,6 +63,8 @@ async def mcp_resource(
     return {
         "resource_name": resource_name,
         "uri": uri,
+        "resource_template_name": resource_template_name,
+        "template_args": template_args or {},
         "content": content,
     }
 

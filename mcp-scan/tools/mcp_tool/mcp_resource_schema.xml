@@ -1,7 +1,7 @@
 <tools>
   <tool name="mcp_resource">
     <description>
-      Read a remote MCP server resource (by name or URI) and return its contents.
+      Read a remote MCP server resource (by name, URI, or resource template) and return its contents.
       Use this tool during MCP dynamic analysis to inspect configuration files,
       documentation, logs and other readonly data exposed as MCP resources.
     </description>
@@ -9,10 +9,12 @@
       This tool forwards the read request to the configured remote MCP server
       (configured via CLI --server_url).
 
-      - You may specify either `resource_name` (preferred) or `uri`.
+      - You may specify `resource_name`, `uri`, or `resource_template_name`.
       - If `resource_name` is provided, it will be resolved using the resource
         list discovered from the MCP server.
       - If both are provided, `uri` takes precedence.
+      - If `resource_template_name` is provided, also provide `template_args`
+        as a JSON object matching variables from `<mcp_resource_templates>`.
       - The returned content can be plain text or base64-encoded binary data,
         depending on the resource type.
     </details>
@@ -29,11 +31,25 @@
           precedence over `resource_name`.
         </description>
       </parameter>
+      <parameter name="resource_template_name" type="string" required="false">
+        <description>
+          Logical name of the MCP resource template to read. This should match
+          the `name` field from the `<mcp_resource_templates>` listing.
+        </description>
+      </parameter>
+      <parameter name="template_args" type="object" required="false">
+        <description>
+          Arguments used to expand the selected resource template, for example
+          {"user_id": "1"}.
+        </description>
+      </parameter>
     </parameters>
     <returns type="Dict[str, Any]">
       <description>Response containing:
 - resource_name: Name used to look up the resource (if any)
 - uri: Final URI that was read from the MCP server
+- resource_template_name: Template name used to build the final URI (if any)
+- template_args: Arguments used to expand the template
 - content: The resource contents (string or base64-encoded blob)
 - error: Error details if the remote read fails
       </description>
@@ -48,7 +64,12 @@
       <function=mcp_resource>
         <parameter=uri>mcp://logs/access.log</parameter>
       </function>
+
+      <!-- Read by dynamic resource template -->
+      <function=mcp_resource>
+        <parameter=resource_template_name>user_profile</parameter>
+        <parameter=template_args>{"user_id":"1"}</parameter>
+      </function>
     </examples>
   </tool>
 </tools>
-

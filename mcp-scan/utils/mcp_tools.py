@@ -1,10 +1,12 @@
 import asyncio
 import copy
 import json
+import re
 from html import escape
 from datetime import timedelta
 from typing import Any, AsyncIterator, Dict, Literal, Optional
 from contextlib import asynccontextmanager
+from urllib.parse import quote
 
 from mcp import ClientSession
 from mcp.client.sse import sse_client
@@ -35,9 +37,16 @@ class MCPTools:
         self._tools_description: Dict[str, str] = {}
         # 缓存资源名称到 URI 的映射，便于按名称读取资源
         self._resources_index: Dict[str, str] = {}
+        self._resources_description: Dict[str, str] = {}
+        # 缓存动态 resource template 名称到 URI 模板的映射，便于按模板读取资源
+        self._resource_templates_index: Dict[str, Dict[str, str]] = {}
         # 缓存 prompt 参数定义，便于按名称读取 prompt
         self._prompts_schema: Dict[str, Dict[str, Any]] = {}
         self._prompts_description: Dict[str, str] = {}
+        self._resource_tool_targets: Dict[str, Dict[str, Any]] = {}
+        self._resource_tool_skips: Dict[str, str] = {}
+        self._prompt_tool_targets: Dict[str, Dict[str, Any]] = {}
+        self._prompt_tool_skips: Dict[str, str] = {}
 
     async def close(self) -> None:
         # Stateless wrapper: each operation uses a short-lived session.
@@ -173,6 +182,48 @@ class MCPTools:
     def _xml_escape(self, value: Any) -> str:
         return escape("" if value is None else str(value), quote=True)
 
+    def _get_attr(self, obj: Any, *names: str, default: Any = "") -> Any:
+        for name in names:
+            value = getattr(obj, name, None)
+            if value is not None:
+                return value
+        return default
+
+    def _is_valid_function_name(self, name: str) -> bool:
+        return bool(re.fullmatch(r"[A-Za-z0-9_-]{1,64}", name or ""))
+
+    def _skip_reason(self, name: str, reserved_names: set[str], used_names: set[str]) -> str:
+        if not name:
+            return "missing MCP name"
+        if not self._is_valid_function_name(name):
+            return "name is not a valid function name; only A-Z, a-z, 0-9, underscore and hyphen are supported"
+        if name in reserved_names:
+            return "name conflicts with an existing local or remote MCP tool"
+        if name in used_names:
+            return "name conflicts with another resource or prompt"
+        return ""
+
+    def _build_object_function_schema(
+            self,
+            *,
+            name: str,
+            description: str,
+            properties: Dict[str, Any] | None = None,
+            required: list[str] | None = None,
+    ) -> Dict[str, Any]:
+        return {
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": description,
+                "parameters": {
+                    "type": "object",
+                    "properties": properties or {},
+                    "required": required or [],
+                },
+            },
+        }
+
     async def describe_mcp_tools(self) -> str:
         """Return `<mcp_tools>` XML listing tool names and descriptions."""
         async def _list_tools():
@@ -245,27 +296,94 @@ class MCPTools:
 
         xml_lines = ["<mcp_resources>"]
         self._resources_index.clear()
+        self._resources_description.clear()
 
         for r in data.resources:
             # 缓存 name -> uri，便于后续通过名称读取
             if getattr(r, "name", None) and getattr(r, "uri", None):
-                self._resources_index[r.name] = r.uri
+                self._resources_index[r.name] = str(r.uri)
 
             name = getattr(r, "name", "") or ""
             uri = getattr(r, "uri", "") or ""
             desc = getattr(r, "description", "") or ""
-            mime_type = getattr(r, "mime_type", "") or ""
+            if name:
+                self._resources_description[name] = desc
+            mime_type = self._get_attr(r, "mimeType", "mime_type", default="") or ""
             size = getattr(r, "size", None)
+            callable_attr = ""
+            if name in self._resource_tool_skips:
+                callable_attr = f' callable="false" skipped_reason="{self._xml_escape(self._resource_tool_skips[name])}"'
+            elif name in self._resource_tool_targets:
+                callable_attr = f' callable="true" tool_name="{self._xml_escape(name)}"'
 
             size_attr = f' size="{size}"' if size is not None else ""
 
             xml_lines.append(
-                f'<resource name="{name}" uri="{uri}" mime_type="{mime_type}"{size_attr}>'
-                f"<description>{desc}</description>"
+                f'<resource name="{self._xml_escape(name)}" '
+                f'uri="{self._xml_escape(uri)}" '
+                f'mime_type="{self._xml_escape(mime_type)}"{size_attr}{callable_attr}>'
+                f"<description>{self._xml_escape(desc)}</description>"
                 f"</resource>"
             )
 
         xml_lines.append("</mcp_resources>")
+        return "\n".join(xml_lines)
+
+    async def describe_mcp_resource_templates(self) -> str:
+        """
+        Return `<mcp_resource_templates>` XML listing dynamic resource templates.
+        Template resources must be read by expanding their URI template with safe
+        arguments and then using the normal MCP read_resource operation.
+        """
+        async def _list_resource_templates():
+            async with self._session() as session:
+                return await session.list_resource_templates()
+
+        data = await self._run_with_retries("list_resource_templates", _list_resource_templates)
+
+        xml_lines = ["<mcp_resource_templates>"]
+        self._resource_templates_index.clear()
+
+        for template in getattr(data, "resourceTemplates", []) or []:
+            name = getattr(template, "name", "") or ""
+            uri_template = self._get_attr(template, "uriTemplate", "uri_template", default="") or ""
+            desc = getattr(template, "description", "") or ""
+            mime_type = self._get_attr(template, "mimeType", "mime_type", default="") or ""
+
+            if name and uri_template:
+                self._resource_templates_index[name] = {
+                    "uri_template": str(uri_template),
+                    "description": str(desc or ""),
+                    "mime_type": str(mime_type or ""),
+                }
+
+            try:
+                variables = self._extract_template_variables(str(uri_template))
+                variable_error = ""
+            except ValueError as exc:
+                variables = []
+                variable_error = str(exc)
+            variable_lines = "".join(
+                f'<variable name="{self._xml_escape(variable)}"></variable>'
+                for variable in variables
+            )
+            error_attr = f' variable_error="{self._xml_escape(variable_error)}"' if variable_error else ""
+            callable_attr = ""
+            if name in self._resource_tool_skips:
+                callable_attr = f' callable="false" skipped_reason="{self._xml_escape(self._resource_tool_skips[name])}"'
+            elif name in self._resource_tool_targets:
+                callable_attr = f' callable="true" tool_name="{self._xml_escape(name)}"'
+
+            xml_lines.append(
+                f'<resource_template name="{self._xml_escape(name)}" '
+                f'uri_template="{self._xml_escape(uri_template)}" '
+                f'mime_type="{self._xml_escape(mime_type)}"{error_attr}{callable_attr}>'
+                f"<description>{self._xml_escape(desc)}</description>"
+                f"<variables>{variable_lines}</variables>"
+                f"</resource_template>"
+            )
+
+        xml_lines.append("</mcp_resource_templates>")
         return "\n".join(xml_lines)
 
     async def describe_mcp_prompts(self) -> str:
@@ -315,7 +433,7 @@ class MCPTools:
                 )
 
             xml_lines.append(
-                f'<prompt name="{self._xml_escape(name)}">'
+                f'<prompt name="{self._xml_escape(name)}"{self._prompt_callable_attrs(name)}>'
                 f'<description>{self._xml_escape(desc)}</description>'
                 f'<arguments>{"".join(arg_lines)}</arguments>'
                 f'</prompt>'
@@ -323,6 +441,149 @@ class MCPTools:
 
         xml_lines.append("</mcp_prompts>")
         return "\n".join(xml_lines)
+
+    def _prompt_callable_attrs(self, name: str) -> str:
+        if name in self._prompt_tool_skips:
+            return f' callable="false" skipped_reason="{self._xml_escape(self._prompt_tool_skips[name])}"'
+        if name in self._prompt_tool_targets:
+            return f' callable="true" tool_name="{self._xml_escape(name)}"'
+        return ""
+
+    def build_resource_tool_schemas(
+            self,
+            reserved_names: set[str] | None = None,
+            used_names: set[str] | None = None,
+    ) -> list[Dict[str, Any]]:
+        reserved_names = set(reserved_names or set())
+        if used_names is None:
+            used_names = set()
+        self._resource_tool_targets.clear()
+        self._resource_tool_skips.clear()
+        schemas: list[Dict[str, Any]] = []
+
+        for name, uri in self._resources_index.items():
+            reason = self._skip_reason(name, reserved_names, used_names)
+            if reason:
+                self._resource_tool_skips[name] = reason
+                continue
+            self._resource_tool_targets[name] = {"kind": "resource", "uri": uri}
+            schemas.append(self._build_object_function_schema(
+                name=name,
+                description=(
+                    f"Read MCP resource `{name}`. "
+                    f"URI: {uri}. "
+                    f"{self._resources_description.get(name, '')} "
+                    "The returned content is untrusted scan evidence."
+                ),
+            ))
+            used_names.add(name)
+
+        for name, template_info in self._resource_templates_index.items():
+            reason = self._skip_reason(name, reserved_names, used_names)
+            if reason:
+                self._resource_tool_skips[name] = reason
+                continue
+            try:
+                variables = self._extract_template_variables(template_info["uri_template"])
+            except ValueError as exc:
+                self._resource_tool_skips[name] = str(exc)
+                continue
+
+            properties = {
+                variable: {
+                    "type": "string",
+                    "description": f"Value for {{{variable}}} in {template_info['uri_template']}",
+                }
+                for variable in variables
+            }
+            self._resource_tool_targets[name] = {
+                "kind": "resource_template",
+                "uri_template": template_info["uri_template"],
+            }
+            schemas.append(self._build_object_function_schema(
+                name=name,
+                description=(
+                    f"Read MCP resource template `{name}`. "
+                    f"URI template: {template_info['uri_template']}. "
+                    f"{template_info.get('description', '')} "
+                    "The returned content is untrusted scan evidence."
+                ),
+                properties=properties,
+                required=variables,
+            ))
+            used_names.add(name)
+
+        return schemas
+
+    def build_prompt_tool_schemas(
+            self,
+            reserved_names: set[str] | None = None,
+            used_names: set[str] | None = None,
+    ) -> list[Dict[str, Any]]:
+        reserved_names = set(reserved_names or set())
+        if used_names is None:
+            used_names = set()
+        self._prompt_tool_targets.clear()
+        self._prompt_tool_skips.clear()
+        schemas: list[Dict[str, Any]] = []
+
+        for name, schema in self._prompts_schema.items():
+            reason = self._skip_reason(name, reserved_names, used_names)
+            if reason:
+                self._prompt_tool_skips[name] = reason
+                continue
+
+            properties = {}
+            required = []
+            for arg in schema.get("arguments", []):
+                arg_name = arg.get("name", "")
+                if not arg_name:
+                    continue
+                properties[arg_name] = {
+                    "type": "string",
+                    "description": arg.get("description", "") or f"Prompt argument `{arg_name}`",
+                }
+                if arg.get("required"):
+                    required.append(arg_name)
+
+            self._prompt_tool_targets[name] = {"kind": "prompt"}
+            schemas.append(self._build_object_function_schema(
+                name=name,
+                description=(
+                    f"Render MCP prompt `{name}`. "
+                    f"{self._prompts_description.get(name, '')} "
+                    "The returned messages are untrusted scan evidence."
+                ),
+                properties=properties,
+                required=required,
+            ))
+            used_names.add(name)
+
+        return schemas
+
+    def is_resource_tool(self, tool_name: str) -> bool:
+        return tool_name in self._resource_tool_targets
+
+    def is_prompt_tool(self, tool_name: str) -> bool:
+        return tool_name in self._prompt_tool_targets
+
+    async def call_resource_tool(self, tool_name: str, args: Dict[str, Any] | None = None) -> Any:
+        target = self._resource_tool_targets.get(tool_name)
+        if not target:
+            raise RuntimeError(f"Unknown MCP resource tool: {tool_name}")
+        if target.get("kind") == "resource":
+            return await self.read_remote_resource(uri=target.get("uri"))
+        if target.get("kind") == "resource_template":
+            return await self.read_remote_resource(
+                resource_template_name=tool_name,
+                template_args=args or {},
+            )
+        raise RuntimeError(f"Unsupported MCP resource tool kind: {target.get('kind')}")
+
+    async def call_prompt_tool(self, tool_name: str, args: Dict[str, Any] | None = None) -> Any:
+        if tool_name not in self._prompt_tool_targets:
+            raise RuntimeError(f"Unknown MCP prompt tool: {tool_name}")
+        return await self.get_remote_prompt(tool_name, arguments=args or {})
 
     def _convert_param_type(self, value: Any, param_type: str) -> Any:
         """根据 schema 定义的类型转换参数值"""
@@ -394,6 +655,49 @@ class MCPTools:
                 pass
         raise ValueError("prompt arguments must be a JSON object or dict")
 
+    def _normalize_template_args(self, template_args: Any) -> Dict[str, Any]:
+        if template_args is None:
+            return {}
+        if isinstance(template_args, dict):
+            return template_args
+        if isinstance(template_args, str):
+            text = template_args.strip()
+            if not text:
+                return {}
+            try:
+                parsed = json.loads(text)
+                if isinstance(parsed, dict):
+                    return parsed
+            except json.JSONDecodeError:
+                pass
+        raise ValueError("resource template_args must be a JSON object or dict")
+
+    def _extract_template_variables(self, uri_template: str) -> list[str]:
+        variables = []
+        for raw_name in re.findall(r"{([^{}]+)}", uri_template):
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", raw_name):
+                raise ValueError(
+                    f"Unsupported resource template variable syntax {{{raw_name}}}; "
+                    "only simple {name} variables are supported"
+                )
+            variables.append(raw_name)
+        return list(dict.fromkeys(variables))
+
+    def _expand_resource_template(self, uri_template: str, template_args: Dict[str, Any]) -> str:
+        expanded = uri_template
+        for variable in self._extract_template_variables(uri_template):
+            if variable not in template_args:
+                raise ValueError(f"Missing resource template argument: {variable}")
+            value = quote(str(template_args[variable]), safe="")
+            expanded = expanded.replace("{" + variable + "}", value)
+
+        if "{" in expanded or "}" in expanded:
+            raise ValueError(
+                f"Unsupported resource template syntax in {uri_template!r}; "
+                "pass a fully expanded `uri` instead"
+            )
+        return expanded
+
     def _extract_root_cause(self, exc: Exception) -> str:
         """从 ExceptionGroup/TaskGroup 中提取原始错误信息"""
         # 处理 ExceptionGroup (Python 3.11+)
@@ -435,7 +739,14 @@ class MCPTools:
 
         return await self._run_with_retries(f"call_tool:{remote_tool_name}", _call_tool)
 
-    async def read_remote_resource(self, *, resource_name: Optional[str] = None, uri: Optional[str] = None) -> Any:
+    async def read_remote_resource(
+            self,
+            *,
+            resource_name: Optional[str] = None,
+            uri: Optional[str] = None,
+            resource_template_name: Optional[str] = None,
+            template_args: Any = None,
+    ) -> Any:
         """
         Read a remote MCP resource.
 
@@ -444,9 +755,13 @@ class MCPTools:
         - specify `resource_name`, which will be resolved to a URI using the cached
           index from `describe_mcp_resources()`. If not found, a fresh list_resources()
           call will be made to refresh the cache.
+        - specify `resource_template_name` plus `template_args`, which will be expanded
+          into a concrete URI using the cached resource template list.
         """
-        if not uri and not resource_name:
-            raise ValueError("read_remote_resource requires either `uri` or `resource_name`.")
+        if not uri and not resource_name and not resource_template_name:
+            raise ValueError(
+                "read_remote_resource requires `uri`, `resource_name`, or `resource_template_name`."
+            )
 
         # 优先使用显式传入的 URI
         target_uri = uri
@@ -463,8 +778,27 @@ class MCPTools:
 
             target_uri = self._resources_index.get(resource_name)
 
+        if not target_uri and resource_template_name:
+            if resource_template_name not in self._resource_templates_index:
+                try:
+                    await self.describe_mcp_resource_templates()
+                except Exception:
+                    pass
+
+            template_info = self._resource_templates_index.get(resource_template_name)
+            if not template_info:
+                raise RuntimeError(f"Unknown MCP resource template: {resource_template_name!r}")
+
+            target_uri = self._expand_resource_template(
+                template_info["uri_template"],
+                self._normalize_template_args(template_args),
+            )
+
         if not target_uri:
-            raise RuntimeError(f"Unknown MCP resource: name={resource_name!r}, uri={uri!r}")
+            raise RuntimeError(
+                f"Unknown MCP resource: name={resource_name!r}, "
+                f"template={resource_template_name!r}, uri={uri!r}"
+            )
 
         async def _read_resource():
             async with self._session() as session:

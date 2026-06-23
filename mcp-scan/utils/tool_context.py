@@ -41,10 +41,17 @@ class ToolContext:
             raise RuntimeError("MCP tools manager is not initialized")
         return await self.tool_dispatcher.mcp_tools_manager.call_remote_tool(tool_name, **tool_args)
 
-    async def read_mcp_resource(self, *, resource_name: Optional[str] = None, uri: Optional[str] = None):
+    async def read_mcp_resource(
+            self,
+            *,
+            resource_name: Optional[str] = None,
+            uri: Optional[str] = None,
+            resource_template_name: Optional[str] = None,
+            template_args: Optional[Dict[str, Any]] = None,
+    ):
         """
         通过 MCP 客户端读取远程资源内容。
-        可以通过资源名称（resource_name）或直接提供 URI（uri）进行读取。
+        可以通过资源名称（resource_name）、直接 URI（uri）或动态资源模板进行读取。
         """
         if not self.tool_dispatcher:
             raise RuntimeError("Tool dispatcher is not available in ToolContext")
@@ -55,6 +62,8 @@ class ToolContext:
         return await self.tool_dispatcher.mcp_tools_manager.read_remote_resource(
             resource_name=resource_name,
             uri=uri,
+            resource_template_name=resource_template_name,
+            template_args=template_args,
         )
 
     async def get_mcp_prompt(self, *, prompt_name: str, arguments: Optional[Dict[str, Any]] = None):
